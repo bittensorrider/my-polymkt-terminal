@@ -60,8 +60,15 @@ A local web dashboard starts automatically alongside the bot (`DASHBOARD_ENABLED
 
 - per-asset cycle status (waiting for entry / monitoring / done / cut-loss), YES/NO entry prices and fill state, time remaining before cut-loss
 - a queued-next badge if a market is waiting because a cycle is already running for that asset
+- a **Balance** panel: your running cumulative P&L across all logged cycles, both as a number and as an inline trend chart (hand-drawn SVG — no charting library, consistent with the rest of the dashboard), plus your live on-chain USDC wallet balance and its change since the dashboard started
 - the same both-fill-rate / breakeven KPI numbers as `npm run kpi-report`, computed by the same shared code so they always agree
 - the last 50 completed cycles
+
+### Balance panel
+
+The cumulative P&L number and chart are computed from `KPI_LOG_PATH` — the same source `npm run kpi-report` reads — so they cover every cycle ever logged, not just what's happened since the dashboard started. While `DRY_RUN=true` this is simulated P&L, clearly labeled as such.
+
+The live USDC balance is a real on-chain read (`balanceOf` on the USDC contract for `PROXY_WALLET_ADDRESS`) and needs only that address — **no `PRIVATE_KEY` required** — so it works even if you've only filled in your wallet address to watch your balance, before ever deciding to trade live. It's polled on its own 15-second interval (separate from the 1-second live-state updates) to avoid hammering the RPC endpoint, and shows a Δ against the balance first seen after the dashboard booted. If `PROXY_WALLET_ADDRESS` is blank, this section just explains how to enable it; if the RPC read fails, the panel shows the error rather than a stale or fake number.
 
 Controls are deliberately limited to **pause / resume / stop** — there's no live parameter tuning. Asset list, duration, and all risk settings (`MM_*`) stay in `.env` and only take effect on restart, so the strategy logic itself is never touched from the browser.
 

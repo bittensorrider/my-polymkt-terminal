@@ -17,6 +17,13 @@ export interface MinuteBreakdown {
   fillRate: number;
 }
 
+/** One point on the running-balance trend chart: the cumulative sum of `pnl` over all cycles
+ * up to and including this one, in log order (oldest first). */
+export interface PnlPoint {
+  ts: string;
+  cumulativePnl: number;
+}
+
 export interface KpiStats {
   totalCycles: number;
   bothFilled: number;
@@ -34,6 +41,9 @@ export interface KpiStats {
   edge: number | null;
   byAsset: AssetBreakdown[];
   byMinuteBucket: MinuteBreakdown[];
+  /** Running balance trend — cumulative pnl after each cycle, oldest first. Empty if no
+   * cycles logged yet. */
+  cumulativePnl: PnlPoint[];
 }
 
 function avg(nums: number[]): number {
@@ -84,6 +94,12 @@ export function computeKpiStats(records: CycleRecord[]): KpiStats {
       };
     });
 
+  let running = 0;
+  const cumulativePnl: PnlPoint[] = records.map((r) => {
+    running += r.pnl;
+    return { ts: r.ts, cumulativePnl: running };
+  });
+
   return {
     totalCycles: records.length,
     bothFilled: both.length,
@@ -98,5 +114,6 @@ export function computeKpiStats(records: CycleRecord[]): KpiStats {
     edge,
     byAsset,
     byMinuteBucket,
+    cumulativePnl,
   };
 }

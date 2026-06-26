@@ -15,6 +15,7 @@ import { logger } from "../logger.js";
 import { errMsg } from "./util.js";
 import { botState } from "./botState.js";
 import { computeKpiStats, type KpiStats } from "./kpiStats.js";
+import { getUsdcBalance } from "./ctf.js";
 import { DASHBOARD_HTML } from "../dashboard/page.js";
 import type { CycleRecord } from "../types.js";
 
@@ -26,6 +27,44 @@ export interface DashboardServerOptions {
 
 export interface DashboardServerHandle {
   stop: () => void;
+}
+
+// ── Live on-chain USDC balance — polled on its own slow interval, never on the 1s
+// broadcast tick, since it's a real RPC call. Cached so /api/state and every WS snapshot
+// just read the last-known value. Gated on PROXY_WALLET_ADDRESS alone (not the stricter
+// "has a signer" check) — reading balanceOf only needs a public address.
+const USDC_POLL_MS = 15_000;
+
+interface WalletBalanceCache {
+  configured: boolean;
+  usdcBalance: number | null;
+  baselineUsdcBalance: number | null;
+  updatedAt: number | null;
+  error: string | null;
+}
+
+const walletBalance: WalletBalanceCache = {
+  configured: config.proxyWallet.length > 0,
+  usdcBalance: null,
+  baselineUsdcBalance: null,
+  updatedAt: null,
+  error: null,
+};
+
+async function refreshUsdcBalance(): Promise<void> {
+  if (!walletBalance.configured) return;
+  try {
+    const value = await getUsdcBalance(config.proxyWallet);
+    walletBalance.usdcBalance = value;
+    walletBalance.updatedAt = Date.now();
+    walletBalance.error = null;
+    if (walletBalance.baselineUsdcBalance === null) {
+      walletBalance.baselineUsdcBalance = value;
+    }
+  } catch (err) {
+    walletBalance.error = errMsg(err);
+    logger.debug(`Dashboard: USDC balance refresh failed: ${errMsg(err)}`);
+  }
 }
 
 async function loadKpiStats(): Promise<KpiStats> {
@@ -54,6 +93,7 @@ function buildStateJson() {
     positions: botState.getPositions(),
     queued: botState.getQueued(),
     recentCycles: botState.getRecentCycles(),
+    wallet: { ...walletBalance },
   };
 }
 
@@ -148,6 +188,12 @@ export function startDashboardServer(options: DashboardServerOptions): Dashboard
     for (const ws of clients) void sendSnapshot(ws);
   }, 1000);
 
+  let balanceTimer: NodeJS.Timeout | null = null;
+  if (walletBalance.configured) {
+    void refreshUsdcBalance();
+    balanceTimer = setInterval(() => void refreshUsdcBalance(), USDC_POLL_MS);
+  }
+
   server.on("error", (err) => {
     logger.warn(`Dashboard server failed to start: ${errMsg(err)} — continuing without it.`);
   });
@@ -159,6 +205,7 @@ export function startDashboardServer(options: DashboardServerOptions): Dashboard
   return {
     stop: () => {
       clearInterval(broadcastTimer);
+      if (balanceTimer) clearInterval(balanceTimer);
       for (const ws of clients) ws.close();
       wss.close();
       server.close();

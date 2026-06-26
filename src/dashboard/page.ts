@@ -171,6 +171,13 @@ export const DASHBOARD_HTML = `<!doctype html>
     <div class="cards" id="asset-cards"><div class="empty">Waiting for first update…</div></div>
   </section>
 
+  <section class="card" id="balance-card">
+    <h2>Balance</h2>
+    <div id="wallet-body" class="empty">Loading…</div>
+    <div id="balance-chart"></div>
+    <div id="balance-chart-summary" class="row"></div>
+  </section>
+
   <section class="card">
     <h2>KPI summary</h2>
     <div id="kpi-body" class="empty">No cycles logged yet.</div>
@@ -337,6 +344,90 @@ export const DASHBOARD_HTML = `<!doctype html>
     });
   }
 
+  function renderWallet(state) {
+    var body = document.getElementById("wallet-body");
+    var w = state.wallet || {};
+    if (!w.configured) {
+      body.className = "empty";
+      body.textContent = "No PROXY_WALLET_ADDRESS set — add it to .env to see your live USDC balance here (read-only check, no PRIVATE_KEY needed for this).";
+      return;
+    }
+    if (w.usdcBalance === null || w.usdcBalance === undefined) {
+      body.className = "empty";
+      body.textContent = w.error ? ("Balance check failed: " + w.error) : "Fetching balance…";
+      return;
+    }
+    body.className = "";
+    body.innerHTML = "";
+    var baseline = (w.baselineUsdcBalance === null || w.baselineUsdcBalance === undefined) ? w.usdcBalance : w.baselineUsdcBalance;
+    var delta = w.usdcBalance - baseline;
+    var ageSec = w.updatedAt ? Math.max(0, Math.round((state.now - w.updatedAt) / 1000)) : null;
+
+    var rowBal = el("div", { cls: "row" });
+    rowBal.appendChild(document.createTextNode("USDC balance"));
+    rowBal.appendChild(el("b", { text: fmtNum(w.usdcBalance, 4) }));
+    body.appendChild(rowBal);
+
+    var rowDelta = el("div", { cls: "row" });
+    rowDelta.appendChild(document.createTextNode("since dashboard start"));
+    rowDelta.appendChild(el("b", { cls: delta >= 0 ? "edge-pos" : "edge-neg", text: (delta >= 0 ? "+" : "") + fmtNum(delta, 4) }));
+    body.appendChild(rowDelta);
+
+    var rowAge = el("div", { cls: "row" });
+    rowAge.appendChild(document.createTextNode("updated"));
+    rowAge.appendChild(el("b", { text: ageSec === null ? "--" : ageSec + "s ago" }));
+    body.appendChild(rowAge);
+
+    if (w.error) {
+      body.appendChild(el("div", { cls: "row", html: '<span style="color:var(--amber)">last refresh failed: ' + w.error + "</span>" }));
+    }
+  }
+
+  function renderBalanceChart(kpi, state) {
+    var container = document.getElementById("balance-chart");
+    var summary = document.getElementById("balance-chart-summary");
+    var points = (kpi && kpi.cumulativePnl) || [];
+    if (points.length === 0) {
+      container.innerHTML = "";
+      summary.className = "row";
+      summary.textContent = "";
+      return;
+    }
+    var w = 600, h = 140, pad = 10;
+    var values = points.map(function (p) { return p.cumulativePnl; });
+    var minV = Math.min(0, Math.min.apply(null, values));
+    var maxV = Math.max(0, Math.max.apply(null, values));
+    if (minV === maxV) { minV -= 1; maxV += 1; }
+
+    function xAt(i) {
+      return points.length <= 1 ? w / 2 : pad + (i / (points.length - 1)) * (w - pad * 2);
+    }
+    function yAt(v) {
+      return h - pad - ((v - minV) / (maxV - minV)) * (h - pad * 2);
+    }
+    var zeroY = yAt(0);
+    var linePath = points.map(function (p, i) {
+      return (i === 0 ? "M" : "L") + xAt(i).toFixed(1) + "," + yAt(p.cumulativePnl).toFixed(1);
+    }).join(" ");
+    var last = values[values.length - 1];
+    var color = last >= 0 ? "var(--green)" : "var(--red)";
+    var areaPath = linePath +
+      " L" + xAt(points.length - 1).toFixed(1) + "," + zeroY.toFixed(1) +
+      " L" + xAt(0).toFixed(1) + "," + zeroY.toFixed(1) + " Z";
+
+    var svg =
+      '<svg viewBox="0 0 ' + w + " " + h + '" preserveAspectRatio="none" style="width:100%;height:140px;display:block;">' +
+      '<line x1="' + pad + '" y1="' + zeroY.toFixed(1) + '" x2="' + (w - pad) + '" y2="' + zeroY.toFixed(1) + '" stroke="var(--border)" stroke-dasharray="4,4" />' +
+      '<path d="' + areaPath + '" fill="' + color + '" opacity="0.12" stroke="none" />' +
+      '<path d="' + linePath + '" fill="none" stroke="' + color + '" stroke-width="2" />' +
+      "</svg>";
+    container.innerHTML = svg;
+
+    summary.className = last >= 0 ? "row edge-pos" : "row edge-neg";
+    summary.textContent = "cumulative p&l: " + (last >= 0 ? "+" : "") + fmtNum(last) + " USDC over " + points.length +
+      " cycle" + (points.length === 1 ? "" : "s") + (state && state.dryRun ? " (dry-run simulated)" : "");
+  }
+
   function renderKpi(kpi) {
     var body = document.getElementById("kpi-body");
     if (!kpi || kpi.totalCycles === 0) {
@@ -411,6 +502,8 @@ export const DASHBOARD_HTML = `<!doctype html>
   function render(state, kpi) {
     renderHeader(state);
     renderAssetCards(state);
+    renderWallet(state);
+    renderBalanceChart(kpi, state);
     renderKpi(kpi);
     renderCycles(state);
   }

@@ -42,6 +42,7 @@ const CTF_ABI = [
 const ERC20_ABI = [
   "function allowance(address owner, address spender) view returns (uint256)",
   "function approve(address spender, uint256 amount) returns (bool)",
+  "function balanceOf(address owner) view returns (uint256)",
 ];
 
 const ctfInterface = new ethers.utils.Interface(CTF_ABI);
@@ -221,6 +222,15 @@ export async function getConditionalTokenBalance(
   if (!owner) return 0n;
   const bal: ethers.BigNumber = await ctfRead().balanceOf(owner, tokenId);
   return BigInt(bal.toString());
+}
+
+/** Live USDC balance for `owner`, in human-readable USDC (not raw base units). Read-only —
+ * needs only a public address, no signer/private key, so this works for dashboard display
+ * even before PRIVATE_KEY is ever set (i.e. as soon as PROXY_WALLET_ADDRESS is filled in). */
+export async function getUsdcBalance(owner: string): Promise<number> {
+  if (!owner) return 0;
+  const bal: ethers.BigNumber = await usdcRead().balanceOf(owner);
+  return Number(ethers.utils.formatUnits(bal, USDC_DECIMALS));
 }
 
 export async function isResolved(conditionId: string): Promise<boolean> {
