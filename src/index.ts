@@ -8,6 +8,8 @@ import { initClient, getBestBid } from "./lib/polymarketClient.js";
 import { MarketDetector } from "./lib/marketDetector.js";
 import { FillWatcher } from "./lib/fillWatcher.js";
 import { runCycle } from "./strategies/makerMergeMM.js";
+import { botState } from "./lib/botState.js";
+import { startDashboardServer, type DashboardServerHandle } from "./lib/dashboardServer.js";
 import type { MarketInfo } from "./types.js";
 
 const runningByAsset = new Set<string>();
@@ -19,8 +21,16 @@ async function handleMarket(
   market: MarketInfo,
   fillWatcher: FillWatcher,
 ): Promise<void> {
+  if (botState.isPaused()) {
+    logger.info(
+      `[${market.asset}] ${market.slug} skipped — bot is paused from the dashboard.`,
+    );
+    return;
+  }
+
   if (runningByAsset.has(market.asset)) {
     pendingByAsset.set(market.asset, market);
+    botState.setQueued(market.asset, market.slug);
     logger.info(
       `[${market.asset}] ${market.slug} queued — a cycle is already running for this asset.`,
     );
@@ -39,6 +49,7 @@ async function handleMarket(
   const next = pendingByAsset.get(market.asset);
   if (next) {
     pendingByAsset.delete(market.asset);
+    botState.setQueued(market.asset, null);
     if (config.mmReentryEnabled) {
       logger.info(
         `[${market.asset}] re-entry delay ${config.mmReentryDelaySec}s before ${next.slug}.`,
@@ -114,15 +125,24 @@ async function main(): Promise<void> {
 
   const statusTimer = setInterval(printStatus, 60_000);
 
+  let dashboardServer: DashboardServerHandle | null = null;
+
   const shutdown = (signal: string): void => {
     logger.info(`Received ${signal}, shutting down…`);
     clearInterval(statusTimer);
     detector.stop();
     fillWatcher.stop();
+    dashboardServer?.stop();
     process.exit(0);
   };
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+  if (config.dashboardEnabled) {
+    dashboardServer = startDashboardServer({
+      onStopRequested: () => shutdown("dashboard"),
+    });
+  }
 }
 
 main().catch((err) => {

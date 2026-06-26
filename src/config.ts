@@ -63,6 +63,9 @@ const envSchema = z.object({
   MM_POLL_SEC: numFromEnv(3),
   MM_DETECTOR_POLL_SEC: numFromEnv(5),
   KPI_LOG_PATH: z.string().default("logs/cycles.jsonl"),
+  DASHBOARD_ENABLED: boolFromEnv(true),
+  DASHBOARD_PORT: numFromEnv(3000),
+  DASHBOARD_HOST: z.string().default("127.0.0.1"),
 });
 
 const parsed = envSchema.parse(process.env);
@@ -114,6 +117,9 @@ export const config = {
   mmPollSec: parsed.MM_POLL_SEC,
   mmDetectorPollSec: parsed.MM_DETECTOR_POLL_SEC,
   kpiLogPath: parsed.KPI_LOG_PATH,
+  dashboardEnabled: parsed.DASHBOARD_ENABLED,
+  dashboardPort: parsed.DASHBOARD_PORT,
+  dashboardHost: parsed.DASHBOARD_HOST,
 };
 
 /** True once both an EOA private key and a Polymarket proxy wallet address are configured. */

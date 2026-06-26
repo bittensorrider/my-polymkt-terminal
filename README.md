@@ -54,6 +54,23 @@ npm run dev:sim     # or: npm run dev  (same thing while DRY_RUN=true)
 
 This has not been run against real funds. If you do anyway: set `PRIVATE_KEY`, `PROXY_WALLET_ADDRESS`, confirm `SIGNATURE_TYPE`, set `DRY_RUN=false`, and start with `MM_TRADE_SIZE` at the 5-share CLOB minimum. The bot will derive CLOB API credentials from your key automatically if `CLOB_API_KEY/SECRET/PASSPHRASE` are left blank.
 
+## Dashboard
+
+A local web dashboard starts automatically alongside the bot (`DASHBOARD_ENABLED=true` by default) at **http://127.0.0.1:3000**. It shows, live:
+
+- per-asset cycle status (waiting for entry / monitoring / done / cut-loss), YES/NO entry prices and fill state, time remaining before cut-loss
+- a queued-next badge if a market is waiting because a cycle is already running for that asset
+- the same both-fill-rate / breakeven KPI numbers as `npm run kpi-report`, computed by the same shared code so they always agree
+- the last 50 completed cycles
+
+Controls are deliberately limited to **pause / resume / stop** — there's no live parameter tuning. Asset list, duration, and all risk settings (`MM_*`) stay in `.env` and only take effect on restart, so the strategy logic itself is never touched from the browser.
+
+- **Pause** stops the bot from entering any *new* cycle (including queued re-entries); anything already in flight keeps running to its normal merge or cut-loss exit. It does not cancel orders or flatten positions.
+- **Resume** clears the pause.
+- **Stop** exits the process immediately — the same as `Ctrl+C`. It does not wait for an in-flight cycle to finish or attempt to flatten exposure first; if a cycle is open when you click it, it's abandoned mid-monitoring, identical to killing the process from the terminal today. The dashboard's confirmation dialog spells this out.
+
+**Security note:** the pause/resume/stop endpoints have no authentication. The dashboard binds to `127.0.0.1` only by default specifically because of that — do not set `DASHBOARD_HOST` to `0.0.0.0` or any public interface unless you put your own auth/proxy in front of it, since anyone who can reach the port can stop the bot. Set `DASHBOARD_ENABLED=false` to turn it off entirely. `DASHBOARD_PORT` defaults to `3000` (the `.env.5m` profile uses `3001` so both can run side by side).
+
 ## Asset selection
 
 Polymarket runs the same Up-or-Down format on four assets: BTC, ETH, SOL, XRP. Only **BTC/ETH are enabled** — `MM_ASSETS=sol` or `xrp` fails config validation on boot (`SUPPORTED_ASSETS` in `src/config.ts`) rather than silently running on a thin market. This is a deliberate gate, not just a default, because a live spot check of the currently-open 15m markets (2026-06-26) showed:
@@ -105,7 +122,12 @@ src/
     marketDetector.ts     polls Gamma API for the next/current market slug per asset
     fillWatcher.ts         RTDS websocket — advisory wake-up signal only
     kpiLogger.ts           appends one JSONL row per entered cycle
+    kpiStats.ts            both-fill-rate/breakeven math, shared by kpi-report and the dashboard
+    botState.ts            in-memory live state + pause flag the dashboard reads/controls
+    dashboardServer.ts      embedded HTTP+WebSocket server for the web dashboard
     util.ts
+  dashboard/
+    page.ts                single-file dashboard HTML/CSS/JS, served as a string (no build step)
   strategies/
     makerMergeMM.ts       the strategy itself
   scripts/

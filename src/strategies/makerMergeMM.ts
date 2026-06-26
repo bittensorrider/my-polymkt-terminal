@@ -20,8 +20,28 @@ import {
 } from "../lib/polymarketClient.js";
 import { getConditionalTokenBalance, mergePositions } from "../lib/ctf.js";
 import { logCycle } from "../lib/kpiLogger.js";
+import { botState } from "../lib/botState.js";
 import type { FillWatcher } from "../lib/fillWatcher.js";
 import type { CycleRecord, MarketInfo, Position, SideState } from "../types.js";
+
+/** Pushes the current position into the shared dashboard state. Pure bookkeeping side
+ * effect — never read back by the strategy itself, so it can never influence trading. */
+function pushPositionSnapshot(position: Position, ghostFill: boolean): void {
+  botState.setPosition(position.market.asset, {
+    asset: position.market.asset,
+    slug: position.market.slug,
+    duration: position.market.duration,
+    status: position.status,
+    eventStartTime: position.market.eventStartTime,
+    endTime: position.market.endTime,
+    yesEntryPrice: position.yes.entryPrice,
+    noEntryPrice: position.no.entryPrice,
+    yesFilled: position.yes.filled,
+    noFilled: position.no.filled,
+    ghostFill,
+    startedAt: position.startedAt,
+  });
+}
 
 interface MonitorResult {
   bothFilled: boolean;
@@ -38,11 +58,26 @@ export async function runCycle(
   fillWatcher: FillWatcher,
 ): Promise<CycleRecord | null> {
   logger.info(`[${market.asset}] watching ${market.slug} for an entry…`);
+  botState.setPosition(market.asset, {
+    asset: market.asset,
+    slug: market.slug,
+    duration: market.duration,
+    status: "waiting_entry",
+    eventStartTime: market.eventStartTime,
+    endTime: market.endTime,
+    yesEntryPrice: null,
+    noEntryPrice: null,
+    yesFilled: false,
+    noFilled: false,
+    ghostFill: false,
+    startedAt: null,
+  });
   const opp = await waitForEntryOpportunity(market);
   if (!opp) {
     logger.info(
       `[${market.asset}] ${market.slug}: no valid entry within window — skipping this cycle.`,
     );
+    botState.clearPosition(market.asset);
     return null;
   }
 
@@ -96,6 +131,7 @@ export async function runCycle(
     ghostFillSuspectedAt: null,
     realizedPnl: 0,
   };
+  pushPositionSnapshot(position, false);
 
   const result = await monitorPosition(position);
   fillWatcher.unwatch(market.yesTokenId);
@@ -121,6 +157,8 @@ export async function runCycle(
     dryRun: config.dryRun,
   };
   await logCycle(record);
+  botState.pushCycleRecord(record);
+  botState.clearPosition(market.asset);
   logger.success(
     `[${market.asset}] cycle complete: ${market.slug} bothFilled=${record.bothFilled} oneSided=${record.oneSided} pnl=${record.pnl.toFixed(4)}`,
   );
@@ -206,9 +244,11 @@ async function monitorPosition(position: Position): Promise<MonitorResult> {
 
   for (;;) {
     await checkFills(position, result);
+    pushPositionSnapshot(position, result.ghostFill);
 
     if (position.yes.filled && position.no.filled) {
       await mergeFilledPair(position, result);
+      pushPositionSnapshot(position, result.ghostFill);
       return result;
     }
 
@@ -221,6 +261,7 @@ async function monitorPosition(position: Position): Promise<MonitorResult> {
 
     if (nowSec() >= cutLossDeadline) {
       await cutLossExit(position, result);
+      pushPositionSnapshot(position, result.ghostFill);
       return result;
     }
 
