@@ -1,6 +1,6 @@
 # my-polymkt-terminal
 
-A maker-merge market maker for Polymarket's 5m/15m crypto Up-or-Down markets (BTC/ETH/SOL/XRP), written in TypeScript.
+A maker-merge market maker for Polymarket's 5m/15m crypto Up-or-Down markets, written in TypeScript. Defaults to BTC/ETH (SOL/XRP are supported but trade much thinner — see [Asset selection](#asset-selection)).
 
 Built by @bittensorrider, inspired by the Medium post [A Polymarket Terminal That Works](https://medium.com/readers-club/a-polymarket-terminal-that-works-f257c952503a) and the [direkturcrypto/polymarket-terminal](https://github.com/direkturcrypto/polymarket-terminal) reference implementation — reimplemented from scratch in this repo rather than copied, with a few fixes and design changes noted below.
 
@@ -54,10 +54,25 @@ npm run dev:sim     # or: npm run dev  (same thing while DRY_RUN=true)
 
 This has not been run against real funds. If you do anyway: set `PRIVATE_KEY`, `PROXY_WALLET_ADDRESS`, confirm `SIGNATURE_TYPE`, set `DRY_RUN=false`, and start with `MM_TRADE_SIZE` at the 5-share CLOB minimum. The bot will derive CLOB API credentials from your key automatically if `CLOB_API_KEY/SECRET/PASSPHRASE` are left blank.
 
+## Asset selection
+
+Polymarket runs the same Up-or-Down format on four assets: BTC, ETH, SOL, XRP. Only **BTC/ETH are enabled** — `MM_ASSETS=sol` or `xrp` fails config validation on boot (`SUPPORTED_ASSETS` in `src/config.ts`) rather than silently running on a thin market. This is a deliberate gate, not just a default, because a live spot check of the currently-open 15m markets (2026-06-26) showed:
+
+| Asset | Volume (this market so far) | Liquidity | Spread |
+|---|---|---|---|
+| BTC | $9,745 | $10,413 | 1¢ |
+| ETH | $968 | $3,607 | 1¢ |
+| XRP | $271 | $1,420 | 1¢ |
+| SOL | $58 | $1,766 | 1¢ |
+
+Spreads were tight across the board (Polymarket's market-maker rewards program keeps quoted liquidity present on all four), but SOL and XRP saw 15–35x less actual trading volume than BTC in that window. Maker-merge MM earns its edge from taker flow crossing into your resting bid on *both* sides — thin volume means fewer takers to cross, which means a lower both-fill rate, which is the metric the whole KPI system above exists to catch. This was one snapshot, not a rigorous study, but it's consistent with BTC/ETH being the dominant pairs everywhere else in crypto.
+
+SOL/XRP support still exists in the code (slug-building, pricing, fills — none of it is BTC/ETH-specific); it's just switched off at `SUPPORTED_ASSETS`. Re-enable by adding them to that list once you actually want to trade them.
+
 ## Scope and limitations
 
 - Only the maker-merge MM strategy is implemented (no copy-trading, no orderbook sniping).
-- Only non-negRisk markets are supported. The BTC/ETH/SOL/XRP Up-or-Down markets in scope here are confirmed not negRisk; the bot throws a clear error rather than silently mis-trading if it ever encounters one.
+- Only non-negRisk markets are supported. The crypto Up-or-Down markets in scope here (BTC/ETH/SOL/XRP) are confirmed not negRisk; the bot throws a clear error rather than silently mis-trading if it ever encounters one.
 - One condition/market cycle runs at a time per asset; a newly detected slot for a busy asset is queued and picked up after the current cycle ends.
 - No automated tests yet — verification so far is `tsc --noEmit`, a full build, and a boot smoke-test (config validation → public-mode client init → detector start → clean shutdown). Logic has not been exercised against a live market.
 

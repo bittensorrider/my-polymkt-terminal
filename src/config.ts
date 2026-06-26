@@ -43,7 +43,7 @@ const envSchema = z.object({
   CLOB_API_SECRET: z.string().optional().default(''),
   CLOB_API_PASSPHRASE: z.string().optional().default(''),
   DRY_RUN: boolFromEnv(true),
-  MM_ASSETS: listFromEnv(['btc', 'eth', 'sol']),
+  MM_ASSETS: listFromEnv(['btc', 'eth']),
   MM_DURATION: z.enum(['5m', '15m']).default('15m'),
   MM_TRADE_SIZE: numFromEnv(5),
   MM_MAX_COMBINED: numFromEnv(0.98),
@@ -61,6 +61,13 @@ const envSchema = z.object({
 });
 
 const parsed = envSchema.parse(process.env);
+
+/** Assets this bot is allowed to trade. Polymarket also runs SOL and XRP Up-or-Down markets,
+ * but they were measured (2026-06-26) at 15-35x less volume than BTC/ETH on the same 15m
+ * format — thin enough to meaningfully hurt the both-fill rate this strategy depends on. They
+ * stay hard-disabled here (not just left out of MM_ASSETS' default) until someone deliberately
+ * re-enables them by editing this list. */
+export const SUPPORTED_ASSETS = ['btc', 'eth'] as const;
 
 export const CHAIN_ID = 137;
 
@@ -127,6 +134,12 @@ export function validateRuntimeConfig(): void {
   }
   if (config.mmAssets.length === 0) {
     errors.push('MM_ASSETS must list at least one asset.');
+  }
+  const unsupported = config.mmAssets.filter((a) => !(SUPPORTED_ASSETS as readonly string[]).includes(a));
+  if (unsupported.length > 0) {
+    errors.push(
+      `Unsupported asset(s) in MM_ASSETS: ${unsupported.join(', ')}. Only ${SUPPORTED_ASSETS.join('/')} are enabled right now — edit SUPPORTED_ASSETS in src/config.ts to add more.`
+    );
   }
   if (config.mmTradeSize < 5) {
     errors.push('MM_TRADE_SIZE must be >= 5 (CLOB minimum order size).');
