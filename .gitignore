@@ -216,3 +216,23 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Node / TypeScript
+node_modules/
+dist/
+npm-debug.log*
+*.tsbuildinfo
+
+# The Python template above ignores a generic `lib/` (Python build dir) — that pattern
+# also matches our src/lib/ directory of actual source files. Un-ignore it explicitly.
+!src/lib/
+!src/lib/**
+
+# Bot runtime data (positions, KPI logs) — never commit live trading data
+data/
+logs/
+*.jsonl
+
+# Secrets
+.env
+.env.local

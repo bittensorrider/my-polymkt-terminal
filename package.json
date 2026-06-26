@@ -1,0 +1,33 @@
+{
+  "name": "my-polymkt-terminal",
+  "version": "0.1.0",
+  "description": "Maker-merge market-making bot for Polymarket 5m/15m crypto Up-or-Down markets. Posts maker-only buy orders on both YES and NO under a combined price cap, merges filled pairs back into USDC, and logs both-fill-rate KPIs.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx watch src/index.ts",
+    "dev:sim": "DRY_RUN=true tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "start:sim": "DRY_RUN=true node dist/index.js",
+    "kpi-report": "tsx src/scripts/kpiReport.ts"
+  },
+  "dependencies": {
+    "@polymarket/clob-client": "4.22.8",
+    "dotenv": "^16.4.7",
+    "ethers": "^5.7.2",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.12",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

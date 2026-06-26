@@ -1,2 +1,85 @@
 # my-polymkt-terminal
-Polymarket Terminal built by @bittensorrider
+
+A maker-merge market maker for Polymarket's 5m/15m crypto Up-or-Down markets (BTC/ETH/SOL/XRP), written in TypeScript. Built by @bittensorrider, inspired by the Medium post "A Polymarket Terminal That Works" and the [direkturcrypto/polymarket-terminal](https://github.com/direkturcrypto/polymarket-terminal) reference implementation — reimplemented from scratch in this repo rather than copied, with a few fixes and design changes noted below.
+
+**Status: dry-run / simulation only.** No live order placement or on-chain transactions have been exercised against real funds. Treat everything here as unaudited.
+
+## Strategy: maker-merge MM
+
+Each 5m/15m Up-or-Down market settles to exactly one of YES/NO. The bot:
+
+1. Watches the order book on both YES and NO right after a market opens.
+2. Once `yesBid + noBid <= MM_MAX_COMBINED` (default 0.98) and both bids sit inside `[MM_MIN_PRICE, MM_MAX_PRICE]`, posts a maker-only GTC BUY limit order on **both sides at once**, same share count each.
+3. If both fill, merges the pair back into USDC via the CTF contract (`mergePositions`) — this redeems 1 YES + 1 NO share for $1 regardless of outcome, so the captured edge is `1 - combined` per share, before gas.
+4. If only one side fills, waits; if neither/only-one has filled by `MM_CUT_LOSS_SEC` before close, cancels open orders and market-sells whatever filled to flatten exposure before the market resolves.
+
+Orders are placed once and never repriced (no cancel/replace loop) — this avoids a class of bugs around cancelled-but-already-filled orders and double exposure. The tradeoff is you'll miss some entries; that's intentional.
+
+### Why "both-fill rate" is the metric that matters
+
+A single maker fill with no merge isn't a market-neutral position — it's a naked directional bet you didn't mean to take. The Medium post's core critique of the reference bot is that it doesn't track this, so a high-looking win rate can hide a strategy that's actually bleeding on one-sided fills. This bot logs every entered cycle to `logs/cycles.jsonl` and `npm run kpi-report` computes:
+
+- both-fill rate (the only thing that earns the spread)
+- a break-even both-fill rate, derived the same way the post does: `p* = loss / (good + loss)`, using your actual logged average P&L for both-filled vs. not-both-filled cycles
+- per-asset and per-entry-minute breakdowns, to spot whether late entries into a slot fill worse than early ones
+
+Run this regularly while in `DRY_RUN` before ever considering going live.
+
+## Fill detection: on-chain balance is the source of truth
+
+The CLOB can report an order as filled while the corresponding on-chain settlement never lands (a "ghost fill"). This bot never trusts CLOB order status alone for live trading — it polls the actual ERC-1155 conditional-token balance and only marks a side filled once the balance moved. If CLOB says an order is no longer open but the balance hasn't changed, it logs a `ghostFill` flag and keeps watching the chain rather than assuming the fill happened.
+
+The RTDS websocket feed (`wss://ws-live-data.polymarket.com`) is wired in but used purely as a wake-up signal to poll sooner — never as proof of a fill. It's disabled entirely in `DRY_RUN`.
+
+In `DRY_RUN`, there are no real orders to check on-chain, so fills are simulated: a side is marked "filled" once the live best ask reaches your resting bid price. This is a proxy using real order-flow, clearly logged as simulated, not a guarantee that a real order would have filled at that size.
+
+## Signature type — a bug fix vs. the reference repo
+
+Polymarket's `@polymarket/order-utils` defines `SignatureType { EOA = 0, POLY_PROXY = 1, POLY_GNOSIS_SAFE = 2 }` (confirmed by reading the package source directly). The reference repo's code comments mislabel value `2` as `POLY_PROXY` — it's actually `POLY_GNOSIS_SAFE`. Standard Polymarket email/Magic-link accounts are Gnosis Safe proxy wallets, so they need `2`. This bot uses the real enum constants (never magic numbers) and defaults `SIGNATURE_TYPE` to `2` with an explanation in `.env.example`. Use `1` only if your Polymarket account was created by connecting MetaMask directly.
+
+## Setup
+
+```bash
+npm install
+cp .env.example .env
+# edit .env — defaults are safe to run as-is (DRY_RUN=true, no wallet needed)
+npm run dev:sim     # or: npm run dev  (same thing while DRY_RUN=true)
+```
+
+`PRIVATE_KEY` / `PROXY_WALLET_ADDRESS` are optional while `DRY_RUN=true` — the bot runs against the public, unauthenticated Gamma/CLOB read endpoints (`getPrice`/`getMidpoint`) and never needs to place a real order. They become required once `DRY_RUN=false`.
+
+### Going live (not recommended yet)
+
+This has not been run against real funds. If you do anyway: set `PRIVATE_KEY`, `PROXY_WALLET_ADDRESS`, confirm `SIGNATURE_TYPE`, set `DRY_RUN=false`, and start with `MM_TRADE_SIZE` at the 5-share CLOB minimum. The bot will derive CLOB API credentials from your key automatically if `CLOB_API_KEY/SECRET/PASSPHRASE` are left blank.
+
+## Scope and limitations
+
+- Only the maker-merge MM strategy is implemented (no copy-trading, no orderbook sniping).
+- Only non-negRisk markets are supported. The BTC/ETH/SOL/XRP Up-or-Down markets in scope here are confirmed not negRisk; the bot throws a clear error rather than silently mis-trading if it ever encounters one.
+- One condition/market cycle runs at a time per asset; a newly detected slot for a busy asset is queued and picked up after the current cycle ends.
+- No automated tests yet — verification so far is `tsc --noEmit`, a full build, and a boot smoke-test (config validation → public-mode client init → detector start → clean shutdown). Logic has not been exercised against a live market.
+
+## Project layout
+
+```
+src/
+  config.ts            env parsing/validation (zod)
+  types.ts             shared types incl. the KPI CycleRecord shape
+  logger.ts            leveled console logger
+  lib/
+    polymarketClient.ts  CLOB client init, price reads, order placement (DRY_RUN-safe)
+    ctf.ts               on-chain split/merge/redeem + Gnosis Safe tx signing/execution
+    marketDetector.ts     polls Gamma API for the next/current market slug per asset
+    fillWatcher.ts         RTDS websocket — advisory wake-up signal only
+    kpiLogger.ts           appends one JSONL row per entered cycle
+    util.ts
+  strategies/
+    makerMergeMM.ts       the strategy itself
+  scripts/
+    kpiReport.ts          npm run kpi-report — both-fill rate vs. breakeven
+  index.ts                wires it all together
+```
+
+## Disclaimer
+
+This is a personal project, not financial advice, and trades on Polymarket carry real risk of loss (smart contract risk, market risk, and bugs in this code). Nothing here has been security-audited. Use at your own risk, and don't run real funds through it until you've validated the KPI logs extensively in `DRY_RUN`.
