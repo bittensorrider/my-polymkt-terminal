@@ -1,6 +1,8 @@
 # my-polymkt-terminal
 
-A maker-merge market maker for Polymarket's 5m/15m crypto Up-or-Down markets (BTC/ETH/SOL/XRP), written in TypeScript. Built by @bittensorrider, inspired by the Medium post "A Polymarket Terminal That Works" and the [direkturcrypto/polymarket-terminal](https://github.com/direkturcrypto/polymarket-terminal) reference implementation — reimplemented from scratch in this repo rather than copied, with a few fixes and design changes noted below.
+A maker-merge market maker for Polymarket's 5m/15m crypto Up-or-Down markets (BTC/ETH/SOL/XRP), written in TypeScript.
+
+Built by @bittensorrider, inspired by the Medium post [A Polymarket Terminal That Works](https://medium.com/readers-club/a-polymarket-terminal-that-works-f257c952503a) and the [direkturcrypto/polymarket-terminal](https://github.com/direkturcrypto/polymarket-terminal) reference implementation — reimplemented from scratch in this repo rather than copied, with a few fixes and design changes noted below.
 
 **Status: dry-run / simulation only.** No live order placement or on-chain transactions have been exercised against real funds. Treat everything here as unaudited.
 
