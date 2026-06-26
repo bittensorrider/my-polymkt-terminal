@@ -30,10 +30,10 @@ coverage/
 data/
 *.jsonl
 
-# Secrets — real env files must never be committed; .env.example is the template
+# Secrets — real env files must never be committed; .env*.example files are templates
 .env
-.env.local
-.env.*.local
+.env.*
+!.env*.example
 
 # Editor / OS
 .vscode/

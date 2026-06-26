@@ -69,6 +69,22 @@ Spreads were tight across the board (Polymarket's market-maker rewards program k
 
 SOL/XRP support still exists in the code (slug-building, pricing, fills — none of it is BTC/ETH-specific); it's just switched off at `SUPPORTED_ASSETS`. Re-enable by adding them to that list once you actually want to trade them.
 
+## 5-minute markets
+
+The bot defaults to `MM_DURATION=15m`, since that's what's been validated. Polymarket also runs the identical Up-or-Down format at 5-minute intervals, and the bot fully supports it (`MM_DURATION=5m` — `marketDetector.ts` derives the 300s window from this, nothing is hardcoded to 15m), but it hasn't been run there yet, for a timing reason rather than a liquidity one.
+
+A live spot check (2026-06-26) found 5m BTC/ETH liquidity ($18–22k BTC, $3–9k ETH) comparable to or better than 15m, with the same fee schedule — so unlike SOL/XRP, thin liquidity isn't the concern. The concern is that `MM_ENTRY_WINDOW_SEC` and `MM_CUT_LOSS_SEC` are fixed in absolute seconds, not scaled to market duration. The 15m defaults (45s entry, 60s cut-loss) spend ~12% of a 900s window on entry/exit guardrails, leaving ~87% to land a both-fill. Applied unchanged to a 300s market, the same constants spend ~38% of the window, leaving only ~62% — a meaningfully smaller margin for catching both sides before price moves. And price moves just as far on 5m as on 15m, just compressed into a third of the time, which is exactly the combination that drags down both-fill rate.
+
+To test this rather than guess: `.env.5m.example` is a second profile with `MM_DURATION=5m` and tightened timing (`MM_ENTRY_WINDOW_SEC=20`, `MM_CUT_LOSS_SEC=25`) sized proportionally to the shorter window, plus its own KPI log so it never mixes with the 15m baseline.
+
+```bash
+cp .env.5m.example .env.5m
+npm run dev:sim:5m     # dry-run against the 5m profile
+npm run kpi-report:5m  # both-fill rate for this profile's own log
+```
+
+Compare its both-fill rate against your 15m baseline (`npm run kpi-report`) before considering 5m for anything beyond `DRY_RUN`.
+
 ## Scope and limitations
 
 - Only the maker-merge MM strategy is implemented (no copy-trading, no orderbook sniping).

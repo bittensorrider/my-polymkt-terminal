@@ -13,9 +13,11 @@
     "typecheck": "tsc --noEmit",
     "dev": "tsx watch src/index.ts",
     "dev:sim": "DRY_RUN=true tsx watch src/index.ts",
+    "dev:sim:5m": "DOTENV_CONFIG_PATH=.env.5m DRY_RUN=true tsx watch src/index.ts",
     "start": "node dist/index.js",
     "start:sim": "DRY_RUN=true node dist/index.js",
-    "kpi-report": "tsx src/scripts/kpiReport.ts"
+    "kpi-report": "tsx src/scripts/kpiReport.ts",
+    "kpi-report:5m": "DOTENV_CONFIG_PATH=.env.5m tsx src/scripts/kpiReport.ts"
   },
   "dependencies": {
     "@polymarket/clob-client": "4.22.8",
