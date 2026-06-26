@@ -1,13 +1,13 @@
 // Polls Polymarket's Gamma API for upcoming "{asset}-updown-{duration}-{eventStartTimestamp}"
 // markets — the deterministic slug format behind the 5m/15m crypto Up-or-Down markets.
 
-import { HOSTS } from '../config.js';
-import { logger } from '../logger.js';
-import { errMsg, nowSec } from './util.js';
-import type { Asset, Duration, MarketInfo } from '../types.js';
+import { HOSTS } from "../config.js";
+import { logger } from "../logger.js";
+import { errMsg, nowSec } from "./util.js";
+import type { Asset, Duration, MarketInfo } from "../types.js";
 
 export function slotSeconds(duration: Duration): number {
-  return duration === '15m' ? 900 : 300;
+  return duration === "15m" ? 900 : 300;
 }
 
 export function currentSlotStart(duration: Duration, atSec = nowSec()): number {
@@ -19,7 +19,11 @@ export function nextSlotStart(duration: Duration, atSec = nowSec()): number {
   return currentSlotStart(duration, atSec) + slotSeconds(duration);
 }
 
-export function buildSlug(asset: Asset, duration: Duration, slotStartSec: number): string {
+export function buildSlug(
+  asset: Asset,
+  duration: Duration,
+  slotStartSec: number,
+): string {
   return `${asset}-updown-${duration}-${slotStartSec}`;
 }
 
@@ -50,34 +54,42 @@ function parseJsonArray(raw: string | undefined): string[] {
 }
 
 /** Returns null on 404 (market not created on Gamma yet — normal while waiting for a future slot). */
-export async function fetchMarketBySlug(slug: string): Promise<GammaMarketRaw | null> {
+export async function fetchMarketBySlug(
+  slug: string,
+): Promise<GammaMarketRaw | null> {
   const res = await fetch(`${HOSTS.gamma}/markets/slug/${slug}`);
   if (res.status === 404) return null;
   if (!res.ok) {
     throw new Error(`Gamma API returned ${res.status} for slug ${slug}`);
   }
   const body = (await res.json()) as GammaMarketRaw | GammaMarketRaw[];
-  return Array.isArray(body) ? body[0] ?? null : body;
+  return Array.isArray(body) ? (body[0] ?? null) : body;
 }
 
 export function normalizeMarket(
   raw: GammaMarketRaw,
   asset: Asset,
   duration: Duration,
-  slug: string
+  slug: string,
 ): MarketInfo | null {
   const conditionId = raw.conditionId ?? raw.condition_id;
   const tokenIds = parseJsonArray(raw.clobTokenIds);
   if (!conditionId || tokenIds.length < 2 || !tokenIds[0] || !tokenIds[1]) {
-    logger.warn(`Market ${slug} is missing conditionId/clobTokenIds — skipping.`);
+    logger.warn(
+      `Market ${slug} is missing conditionId/clobTokenIds — skipping.`,
+    );
     return null;
   }
 
   const endDateStr = raw.endDate ?? raw.end_date_iso;
   const slot = currentSlotStart(duration);
-  const endTime = endDateStr ? Math.floor(Date.parse(endDateStr) / 1000) : slot + slotSeconds(duration);
+  const endTime = endDateStr
+    ? Math.floor(Date.parse(endDateStr) / 1000)
+    : slot + slotSeconds(duration);
   const eventStartStr = raw.eventStartTime;
-  const eventStartTime = eventStartStr ? Math.floor(Date.parse(eventStartStr) / 1000) : endTime - slotSeconds(duration);
+  const eventStartTime = eventStartStr
+    ? Math.floor(Date.parse(eventStartStr) / 1000)
+    : endTime - slotSeconds(duration);
 
   return {
     asset,
@@ -88,7 +100,9 @@ export function normalizeMarket(
     yesTokenId: tokenIds[0],
     noTokenId: tokenIds[1],
     negRisk: Boolean(raw.negRisk ?? raw.neg_risk ?? false),
-    tickSize: Number(raw.orderPriceMinTickSize ?? raw.order_price_min_tick_size ?? 0.01),
+    tickSize: Number(
+      raw.orderPriceMinTickSize ?? raw.order_price_min_tick_size ?? 0.01,
+    ),
     minOrderSize: Number(raw.orderMinSize ?? raw.order_min_size ?? 5),
     eventStartTime,
     endTime,
@@ -108,7 +122,7 @@ export class MarketDetector {
     private readonly assets: Asset[],
     private readonly duration: Duration,
     private readonly pollSec: number,
-    private readonly onFound: OnMarketFound
+    private readonly onFound: OnMarketFound,
   ) {}
 
   start(): void {
@@ -116,7 +130,7 @@ export class MarketDetector {
     void this.tick();
     this.timer = setInterval(() => void this.tick(), this.pollSec * 1000);
     logger.info(
-      `Market detector started (assets=${this.assets.join(',')}, duration=${this.duration}, poll=${this.pollSec}s).`
+      `Market detector started (assets=${this.assets.join(",")}, duration=${this.duration}, poll=${this.pollSec}s).`,
     );
   }
 

@@ -59,13 +59,13 @@ This has not been run against real funds. If you do anyway: set `PRIVATE_KEY`, `
 Polymarket runs the same Up-or-Down format on four assets: BTC, ETH, SOL, XRP. Only **BTC/ETH are enabled** — `MM_ASSETS=sol` or `xrp` fails config validation on boot (`SUPPORTED_ASSETS` in `src/config.ts`) rather than silently running on a thin market. This is a deliberate gate, not just a default, because a live spot check of the currently-open 15m markets (2026-06-26) showed:
 
 | Asset | Volume (this market so far) | Liquidity | Spread |
-|---|---|---|---|
-| BTC | $9,745 | $10,413 | 1¢ |
-| ETH | $968 | $3,607 | 1¢ |
-| XRP | $271 | $1,420 | 1¢ |
-| SOL | $58 | $1,766 | 1¢ |
+| ----- | --------------------------- | --------- | ------ |
+| BTC   | $9,745                      | $10,413   | 1¢     |
+| ETH   | $968                        | $3,607    | 1¢     |
+| XRP   | $271                        | $1,420    | 1¢     |
+| SOL   | $58                         | $1,766    | 1¢     |
 
-Spreads were tight across the board (Polymarket's market-maker rewards program keeps quoted liquidity present on all four), but SOL and XRP saw 15–35x less actual trading volume than BTC in that window. Maker-merge MM earns its edge from taker flow crossing into your resting bid on *both* sides — thin volume means fewer takers to cross, which means a lower both-fill rate, which is the metric the whole KPI system above exists to catch. This was one snapshot, not a rigorous study, but it's consistent with BTC/ETH being the dominant pairs everywhere else in crypto.
+Spreads were tight across the board (Polymarket's market-maker rewards program keeps quoted liquidity present on all four), but SOL and XRP saw 15–35x less actual trading volume than BTC in that window. Maker-merge MM earns its edge from taker flow crossing into your resting bid on _both_ sides — thin volume means fewer takers to cross, which means a lower both-fill rate, which is the metric the whole KPI system above exists to catch. This was one snapshot, not a rigorous study, but it's consistent with BTC/ETH being the dominant pairs everywhere else in crypto.
 
 SOL/XRP support still exists in the code (slug-building, pricing, fills — none of it is BTC/ETH-specific); it's just switched off at `SUPPORTED_ASSETS`. Re-enable by adding them to that list once you actually want to trade them.
 

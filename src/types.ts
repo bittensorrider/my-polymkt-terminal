@@ -1,8 +1,8 @@
 // Domain types shared across the detector, strategy, and KPI logger.
 
 export type Asset = string; // 'btc' | 'eth' | 'sol' | 'xrp' ... kept open, Polymarket adds assets over time
-export type Duration = '5m' | '15m';
-export type SideName = 'yes' | 'no';
+export type Duration = "5m" | "15m";
+export type SideName = "yes" | "no";
 
 /** Normalized view of a Polymarket "{asset}-updown-{duration}-{ts}" market, from Gamma API. */
 export interface MarketInfo {
@@ -36,12 +36,12 @@ export interface SideState {
 }
 
 export type CycleStatus =
-  | 'entering'
-  | 'monitoring'
-  | 'merging'
-  | 'recovering'
-  | 'cut_loss'
-  | 'done';
+  | "entering"
+  | "monitoring"
+  | "merging"
+  | "recovering"
+  | "cut_loss"
+  | "done";
 
 /** Live state for one maker-merge cycle on one market. */
 export interface Position {

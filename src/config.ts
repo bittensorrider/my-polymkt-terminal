@@ -1,12 +1,17 @@
-import 'dotenv/config';
-import { z } from 'zod';
-import type { Duration } from './types.js';
+import "dotenv/config";
+import { z } from "zod";
+
+import type { Duration } from "./types.js";
 
 function boolFromEnv(def: boolean) {
   return z
     .string()
     .optional()
-    .transform((v) => (v === undefined || v.trim() === '' ? def : v.trim().toLowerCase() === 'true'));
+    .transform((v) =>
+      v === undefined || v.trim() === ""
+        ? def
+        : v.trim().toLowerCase() === "true",
+    );
 }
 
 function numFromEnv(def: number) {
@@ -14,7 +19,7 @@ function numFromEnv(def: number) {
     .string()
     .optional()
     .transform((v) => {
-      if (v === undefined || v.trim() === '') return def;
+      if (v === undefined || v.trim() === "") return def;
       const n = Number(v);
       return Number.isFinite(n) ? n : def;
     });
@@ -25,26 +30,26 @@ function listFromEnv(def: string[]) {
     .string()
     .optional()
     .transform((v) =>
-      v === undefined || v.trim() === ''
+      v === undefined || v.trim() === ""
         ? def
         : v
-            .split(',')
+            .split(",")
             .map((s) => s.trim().toLowerCase())
-            .filter(Boolean)
+            .filter(Boolean),
     );
 }
 
 const envSchema = z.object({
-  PRIVATE_KEY: z.string().optional().default(''),
-  PROXY_WALLET_ADDRESS: z.string().optional().default(''),
+  PRIVATE_KEY: z.string().optional().default(""),
+  PROXY_WALLET_ADDRESS: z.string().optional().default(""),
   SIGNATURE_TYPE: numFromEnv(2),
-  POLYGON_RPC_URL: z.string().default('https://polygon-bor-rpc.publicnode.com'),
-  CLOB_API_KEY: z.string().optional().default(''),
-  CLOB_API_SECRET: z.string().optional().default(''),
-  CLOB_API_PASSPHRASE: z.string().optional().default(''),
+  POLYGON_RPC_URL: z.string().default("https://polygon-bor-rpc.publicnode.com"),
+  CLOB_API_KEY: z.string().optional().default(""),
+  CLOB_API_SECRET: z.string().optional().default(""),
+  CLOB_API_PASSPHRASE: z.string().optional().default(""),
   DRY_RUN: boolFromEnv(true),
-  MM_ASSETS: listFromEnv(['btc', 'eth']),
-  MM_DURATION: z.enum(['5m', '15m']).default('15m'),
+  MM_ASSETS: listFromEnv(["btc", "eth"]),
+  MM_DURATION: z.enum(["5m", "15m"]).default("15m"),
   MM_TRADE_SIZE: numFromEnv(5),
   MM_MAX_COMBINED: numFromEnv(0.98),
   MM_MIN_PRICE: numFromEnv(0.3),
@@ -57,7 +62,7 @@ const envSchema = z.object({
   CURRENT_MARKET_MAX_ODDS: numFromEnv(0.7),
   MM_POLL_SEC: numFromEnv(3),
   MM_DETECTOR_POLL_SEC: numFromEnv(5),
-  KPI_LOG_PATH: z.string().default('logs/cycles.jsonl'),
+  KPI_LOG_PATH: z.string().default("logs/cycles.jsonl"),
 });
 
 const parsed = envSchema.parse(process.env);
@@ -67,22 +72,22 @@ const parsed = envSchema.parse(process.env);
  * format — thin enough to meaningfully hurt the both-fill rate this strategy depends on. They
  * stay hard-disabled here (not just left out of MM_ASSETS' default) until someone deliberately
  * re-enables them by editing this list. */
-export const SUPPORTED_ASSETS = ['btc', 'eth'] as const;
+export const SUPPORTED_ASSETS = ["btc", "eth"] as const;
 
 export const CHAIN_ID = 137;
 
 export const HOSTS = {
-  clob: 'https://clob.polymarket.com',
-  gamma: 'https://gamma-api.polymarket.com',
-  data: 'https://data-api.polymarket.com',
+  clob: "https://clob.polymarket.com",
+  gamma: "https://gamma-api.polymarket.com",
+  data: "https://data-api.polymarket.com",
 } as const;
 
 /** Polygon mainnet contract addresses used by Polymarket. Fixed — not env-configurable. */
 export const CONTRACTS = {
-  ctf: '0x4D97DCd97eC945f40cF65F87097ACe5EA0476045',
-  usdc: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
-  ctfExchange: '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E',
-  negRiskExchange: '0xC5d563A36AE78145C45a50134d48A1215220f80a',
+  ctf: "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045",
+  usdc: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+  ctfExchange: "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E",
+  negRiskExchange: "0xC5d563A36AE78145C45a50134d48A1215220f80a",
 } as const;
 
 export const config = {
@@ -121,40 +126,48 @@ export function validateRuntimeConfig(): void {
   const errors: string[] = [];
 
   if (!config.dryRun && !hasWallet()) {
-    errors.push('PRIVATE_KEY and PROXY_WALLET_ADDRESS are required when DRY_RUN=false.');
+    errors.push(
+      "PRIVATE_KEY and PROXY_WALLET_ADDRESS are required when DRY_RUN=false.",
+    );
   }
   if (config.privateKey && !/^0x[0-9a-fA-F]{64}$/.test(config.privateKey)) {
-    errors.push('PRIVATE_KEY must be a 0x-prefixed 32-byte hex string.');
+    errors.push("PRIVATE_KEY must be a 0x-prefixed 32-byte hex string.");
   }
   if (config.proxyWallet && !/^0x[0-9a-fA-F]{40}$/.test(config.proxyWallet)) {
-    errors.push('PROXY_WALLET_ADDRESS must be a 0x-prefixed 20-byte hex address.');
+    errors.push(
+      "PROXY_WALLET_ADDRESS must be a 0x-prefixed 20-byte hex address.",
+    );
   }
   if (![0, 1, 2].includes(config.signatureType)) {
-    errors.push('SIGNATURE_TYPE must be 0 (EOA), 1 (POLY_PROXY) or 2 (POLY_GNOSIS_SAFE).');
+    errors.push(
+      "SIGNATURE_TYPE must be 0 (EOA), 1 (POLY_PROXY) or 2 (POLY_GNOSIS_SAFE).",
+    );
   }
   if (config.mmAssets.length === 0) {
-    errors.push('MM_ASSETS must list at least one asset.');
+    errors.push("MM_ASSETS must list at least one asset.");
   }
-  const unsupported = config.mmAssets.filter((a) => !(SUPPORTED_ASSETS as readonly string[]).includes(a));
+  const unsupported = config.mmAssets.filter(
+    (a) => !(SUPPORTED_ASSETS as readonly string[]).includes(a),
+  );
   if (unsupported.length > 0) {
     errors.push(
-      `Unsupported asset(s) in MM_ASSETS: ${unsupported.join(', ')}. Only ${SUPPORTED_ASSETS.join('/')} are enabled right now — edit SUPPORTED_ASSETS in src/config.ts to add more.`
+      `Unsupported asset(s) in MM_ASSETS: ${unsupported.join(", ")}. Only ${SUPPORTED_ASSETS.join("/")} are enabled right now — edit SUPPORTED_ASSETS in src/config.ts to add more.`,
     );
   }
   if (config.mmTradeSize < 5) {
-    errors.push('MM_TRADE_SIZE must be >= 5 (CLOB minimum order size).');
+    errors.push("MM_TRADE_SIZE must be >= 5 (CLOB minimum order size).");
   }
   if (config.mmMaxCombined <= 0 || config.mmMaxCombined >= 1) {
-    errors.push('MM_MAX_COMBINED must be between 0 and 1 (exclusive).');
+    errors.push("MM_MAX_COMBINED must be between 0 and 1 (exclusive).");
   }
   if (config.mmMinPrice <= 0 || config.mmMinPrice >= config.mmMaxPrice) {
-    errors.push('MM_MIN_PRICE must be > 0 and < MM_MAX_PRICE.');
+    errors.push("MM_MIN_PRICE must be > 0 and < MM_MAX_PRICE.");
   }
   if (config.mmCutLossSec < 0) {
-    errors.push('MM_CUT_LOSS_SEC must be >= 0.');
+    errors.push("MM_CUT_LOSS_SEC must be >= 0.");
   }
 
   if (errors.length > 0) {
-    throw new Error(`Invalid configuration:\n  - ${errors.join('\n  - ')}`);
+    throw new Error(`Invalid configuration:\n  - ${errors.join("\n  - ")}`);
   }
 }
