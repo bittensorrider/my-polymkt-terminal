@@ -20,6 +20,7 @@ import {
   type PlaceOrderResult,
 } from "../lib/polymarketClient.js";
 import { getConditionalTokenBalance, mergePositions } from "../lib/ctf.js";
+import { getPolUsdPrice } from "../lib/gasPriceFeed.js";
 import { logCycle } from "../lib/kpiLogger.js";
 import { botState } from "../lib/botState.js";
 import type { FillWatcher } from "../lib/fillWatcher.js";
@@ -50,6 +51,8 @@ interface MonitorResult {
   ghostFill: boolean;
   cutLoss: boolean;
   timeToFillMs: number | null;
+  /** Real Polygon gas cost of the merge tx, in USD. 0 in DRY_RUN or if no merge happened. */
+  gasCostUsd: number;
 }
 
 /** Runs one full maker-merge cycle on `market`. Returns null if no valid entry was ever
@@ -158,6 +161,7 @@ export async function runCycle(
       cutLoss: result.cutLoss,
       timeToFillMs: result.timeToFillMs,
       pnl: position.realizedPnl,
+      gasCostUsd: result.gasCostUsd,
       dryRun: config.dryRun,
     };
     await logCycle(record);
@@ -305,6 +309,7 @@ async function monitorPosition(position: Position): Promise<MonitorResult> {
     ghostFill: false,
     cutLoss: false,
     timeToFillMs: null,
+    gasCostUsd: 0,
   };
   let oneSidedWarned = false;
 
@@ -427,13 +432,38 @@ async function mergeFilledPair(
     position.no.filledShares,
   );
   try {
-    await mergePositions(market.conditionId, mergeShares, market.negRisk);
+    const mergeResult = await mergePositions(
+      market.conditionId,
+      mergeShares,
+      market.negRisk,
+    );
     const cost =
       (position.yes.entryPrice + position.no.entryPrice) * mergeShares;
-    position.realizedPnl += mergeShares - cost;
+
+    // Real gas paid by the signer EOA for this merge tx, converted to USD and deducted from
+    // P&L. gasCostPol is only ever set on a real (non-DRY_RUN) confirmed tx — see ctf.ts. A
+    // failed price lookup here never blocks/reverts the already-confirmed merge; it just
+    // means this cycle's gas cost is logged as $0 instead of its real (small) value.
+    let gasCostUsd = 0;
+    if (mergeResult.gasCostPol) {
+      try {
+        const polUsd = await getPolUsdPrice();
+        gasCostUsd = mergeResult.gasCostPol * polUsd;
+      } catch (err) {
+        logger.warn(
+          `Merged ${mergeShares} shares/side but couldn't price the ${mergeResult.gasCostPol.toFixed(6)} POL ` +
+            `gas cost in USD (${errMsg(err)}) — recording $0 gas cost for this cycle.`,
+        );
+      }
+    }
+    result.gasCostUsd += gasCostUsd;
+    position.realizedPnl += mergeShares - cost - gasCostUsd;
     position.status = "done";
     logger.success(
-      `[${market.asset}] merged ${mergeShares} shares/side -> +${(mergeShares - cost).toFixed(4)} USDC.`,
+      `[${market.asset}] merged ${mergeShares} shares/side -> +${(mergeShares - cost).toFixed(4)} USDC` +
+        (gasCostUsd > 0
+          ? ` - ${gasCostUsd.toFixed(4)} USDC gas = +${(mergeShares - cost - gasCostUsd).toFixed(4)} net.`
+          : "."),
     );
   } catch (err) {
     logger.error(

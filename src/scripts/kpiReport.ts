@@ -50,6 +50,7 @@ async function main(): Promise<void> {
   console.log(`One-sided / cut-loss exits: ${stats.oneSided}`);
   console.log(`Ghost-fill flags: ${stats.ghostFills}`);
   console.log(`Total P&L: ${stats.totalPnl.toFixed(4)} USDC`);
+  console.log(`  (of which gas cost: ${stats.totalGasCostUsd.toFixed(4)} USDC)`);
   console.log(`Avg P&L when both filled (good): ${stats.goodAvgPnl.toFixed(4)}`);
   console.log(`Avg P&L when not both filled (loss): ${stats.lossAvgPnl.toFixed(4)}`);
 

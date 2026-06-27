@@ -31,6 +31,10 @@ export interface KpiStats {
   ghostFills: number;
   fillRate: number;
   totalPnl: number;
+  /** Sum of real on-chain gas cost (USD) across all cycles — already netted into totalPnl,
+   * broken out separately for visibility. 0 for any log row predating this field (older
+   * JSONL lines parse back with gasCostUsd undefined; treated as 0 here). */
+  totalGasCostUsd: number;
   goodAvgPnl: number;
   lossAvgPnl: number;
   lossMagnitude: number;
@@ -107,6 +111,7 @@ export function computeKpiStats(records: CycleRecord[]): KpiStats {
     ghostFills: records.filter((r) => r.ghostFill).length,
     fillRate,
     totalPnl: records.reduce((s, r) => s + r.pnl, 0),
+    totalGasCostUsd: records.reduce((s, r) => s + (r.gasCostUsd ?? 0), 0),
     goodAvgPnl,
     lossAvgPnl,
     lossMagnitude,

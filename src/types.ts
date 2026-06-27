@@ -75,5 +75,9 @@ export interface CycleRecord {
   cutLoss: boolean;
   timeToFillMs: number | null;
   pnl: number;
+  /** Real Polygon gas cost of the merge tx, in USD, already subtracted from `pnl`. Always 0
+   * in DRY_RUN (no real tx) and also 0 for cycles that never reached a merge (one-sided /
+   * cut-loss exits never call mergePositions). */
+  gasCostUsd: number;
   dryRun: boolean;
 }

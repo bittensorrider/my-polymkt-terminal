@@ -12,7 +12,7 @@ Each 5m/15m Up-or-Down market settles to exactly one of YES/NO. The bot:
 
 1. Watches the order book on both YES and NO right after a market opens.
 2. Once `yesBid + noBid <= MM_MAX_COMBINED` (default 0.98) and both bids sit inside `[MM_MIN_PRICE, MM_MAX_PRICE]`, posts a maker-only GTC BUY limit order on **both sides at once**, same share count each.
-3. If both fill, merges the pair back into USDC via the CTF contract (`mergePositions`) — this redeems 1 YES + 1 NO share for $1 regardless of outcome, so the captured edge is `1 - combined` per share, before gas.
+3. If both fill, merges the pair back into USDC via the CTF contract (`mergePositions`) — this redeems 1 YES + 1 NO share for $1 regardless of outcome, so the captured edge is `1 - combined` per share, net of the real Polygon gas cost of that merge transaction (see [Gas cost accounting](#gas-cost-accounting-on-merges) below).
 4. If only one side fills, waits; if neither/only-one has filled by `MM_CUT_LOSS_SEC` before close, cancels open orders and market-sells whatever filled to flatten exposure before the market resolves.
 
 Orders are placed once and never repriced (no cancel/replace loop) — this avoids a class of bugs around cancelled-but-already-filled orders and double exposure. The tradeoff is you'll miss some entries; that's intentional.
@@ -55,6 +55,18 @@ The same Medium post's other flagged concern — hardcoding `feeRateBps` instead
 
 Note this new failure path is unreachable in `DRY_RUN` — `placeMakerBuy()`'s dry-run branch always resolves, never rejects — so it only takes effect once `DRY_RUN=false` and you're placing real orders.
 
+## Gas cost accounting on merges
+
+`mergePositions()` (`src/lib/ctf.ts`) is a real on-chain transaction — the Gnosis Safe's `execTransaction` is submitted directly by your signer EOA, which pays real Polygon gas in POL. (The Safe call's own `safeTxGas`/`baseGas`/`gasPrice`/`gasToken` params are all zeroed out, but that only disables the Safe contract's *internal* refund mechanism — it doesn't mean gas is free or sponsored.) This came up while cross-checking the bot against [Decoding Polymarket's Money Maker Bot gabagool22](https://medium.com/readers-club/decoding-polymarkets-money-maker-bot-gabagool22-c953a6843532)'s fee-modeling checklist: until now, this real cost was never subtracted from `realizedPnl` — invisible only because `DRY_RUN` never executes a real transaction.
+
+Fixed by capturing the actual cost from the merge tx's receipt rather than estimating it:
+
+- `doExecSafeCall()` reads `receipt.gasUsed * receipt.effectiveGasPrice` after `tx.wait()` and returns it on `SafeCallResult.gasCostPol` — only ever set for a real, already-confirmed transaction, never DRY_RUN.
+- `src/lib/gasPriceFeed.ts` converts that to USD via Binance's public `POLUSDT` ticker (`MATICUSDT` was delisted in September 2024 as part of the MATIC→POL rebrand — `POLUSDT` is the current pair), cached for 60s.
+- `makerMergeMM.ts`'s merge handling subtracts the USD gas cost from `realizedPnl` and logs it separately on `CycleRecord.gasCostUsd`, surfaced in `npm run kpi-report` (`Total gas cost: …`) and on the dashboard (a `gas cost` summary stat plus a per-cycle `gas` column).
+
+A failed POL price lookup never blocks or retries the merge itself — it's already confirmed on-chain by that point — it just logs that cycle's gas cost as $0 rather than its real (small) value. `redeemPositions()` is defined in `ctf.ts` but never called anywhere in the automated path (the bot always merges immediately rather than holding to resolution), so the article's separate "winning fee on redemption" concern doesn't apply here.
+
 ## Setup
 
 ```bash
@@ -78,7 +90,7 @@ A local web dashboard starts automatically alongside the bot (`DASHBOARD_ENABLED
 - a queued-next badge if a market is waiting because a cycle is already running for that asset
 - live **BTC/ETH price charts** (candlestick or line, with a 1m/5m/15m/1h timeframe picker) for visual context next to the up/down markets
 - a **Balance** panel: your running cumulative P&L across all logged cycles, both as a number and as an inline trend chart (hand-drawn SVG — no charting library), plus your live on-chain USDC wallet balance and its change since the dashboard started
-- the same both-fill-rate / breakeven KPI numbers as `npm run kpi-report`, computed by the same shared code so they always agree
+- the same both-fill-rate / breakeven KPI numbers as `npm run kpi-report`, computed by the same shared code so they always agree, plus total real gas cost across all logged cycles (see [Gas cost accounting](#gas-cost-accounting-on-merges))
 - the last 50 completed cycles
 
 ### Price charts
@@ -151,6 +163,7 @@ src/
   lib/
     polymarketClient.ts  CLOB client init, price reads, order placement (DRY_RUN-safe)
     ctf.ts               on-chain split/merge/redeem + Gnosis Safe tx signing/execution
+    gasPriceFeed.ts        live POL/USD price (Binance), used only to price real merge gas cost
     marketDetector.ts     polls Gamma API for the next/current market slug per asset
     fillWatcher.ts         RTDS websocket — advisory wake-up signal only
     kpiLogger.ts           appends one JSONL row per entered cycle

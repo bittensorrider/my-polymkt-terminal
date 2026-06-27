@@ -71,6 +71,12 @@ function assertNotNegRisk(negRisk: boolean, op: string): void {
 export interface SafeCallResult {
   dryRun: boolean;
   txHash: string;
+  /** Real Polygon gas cost of this Safe tx, in POL (human units, not wei). Only ever set on
+   * a real (non-DRY_RUN) confirmed transaction — never estimated/simulated, since the whole
+   * point is to capture what was *actually* paid. The Safe params below (safeTxGas=0 etc.)
+   * only disable the Safe contract's own internal gas-refund mechanism; the signer EOA still
+   * pays real gas to call execTransaction, which is what this field accounts for. */
+  gasCostPol?: number;
 }
 
 let txQueue: Promise<unknown> = Promise.resolve();
@@ -153,10 +159,28 @@ async function doExecSafeCall(
     );
   }
   const receipt = await tx.wait();
+
+  // Best-effort real gas-cost capture. effectiveGasPrice is a required field on ethers v5.5+
+  // (confirmed: this project has 5.8.0 installed) for EIP-1559 chains like Polygon, but this
+  // is wrapped defensively so a provider quirk here can never throw away a successful,
+  // already-confirmed on-chain transaction — worst case we just log $0 gas for this tx.
+  let gasCostPol: number | undefined;
+  try {
+    const effectiveGasPrice = receipt.effectiveGasPrice ?? tx.gasPrice;
+    if (effectiveGasPrice) {
+      gasCostPol = Number(
+        ethers.utils.formatEther(receipt.gasUsed.mul(effectiveGasPrice)),
+      );
+    }
+  } catch (err) {
+    logger.warn(`Could not compute gas cost for ${description}: ${errMsg(err)}`);
+  }
+
   logger.success(
-    `Safe tx confirmed: ${description} (${receipt.transactionHash})`,
+    `Safe tx confirmed: ${description} (${receipt.transactionHash})` +
+      (gasCostPol !== undefined ? ` — gas: ${gasCostPol.toFixed(6)} POL` : ""),
   );
-  return { dryRun: false, txHash: receipt.transactionHash };
+  return { dryRun: false, txHash: receipt.transactionHash, gasCostPol };
 }
 
 function errMsg(err: unknown): string {

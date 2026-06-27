@@ -612,6 +612,7 @@ export const DASHBOARD_HTML = `<!doctype html>
     stat("cycles", String(kpi.totalCycles));
     stat("both-fill rate", fmtPct(kpi.fillRate));
     stat("total p&l", fmtNum(kpi.totalPnl) + " USDC");
+    stat("gas cost", fmtNum(kpi.totalGasCostUsd) + " USDC");
     stat("ghost fills", String(kpi.ghostFills));
 
     body.appendChild(grid);
@@ -643,18 +644,20 @@ export const DASHBOARD_HTML = `<!doctype html>
     body.innerHTML = "";
     var table = el("table");
     var thead = el("thead");
-    thead.innerHTML = "<tr><th>time</th><th>asset</th><th>slug</th><th>result</th><th>pnl</th></tr>";
+    thead.innerHTML = "<tr><th>time</th><th>asset</th><th>slug</th><th>result</th><th>gas</th><th>pnl</th></tr>";
     table.appendChild(thead);
     var tbody = el("tbody");
     rows.slice(0, 20).forEach(function (r) {
       var tr = el("tr");
       var time = new Date(r.ts).toISOString().slice(11, 19);
       var result = r.bothFilled ? "both filled" : (r.cutLoss ? "cut loss" : "one-sided");
+      var gas = r.gasCostUsd ? fmtNum(r.gasCostUsd) : "—";
       tr.innerHTML =
         "<td>" + time + "</td>" +
         "<td>" + r.asset.toUpperCase() + "</td>" +
         "<td>" + r.slug + "</td>" +
         "<td>" + result + "</td>" +
+        "<td>" + gas + "</td>" +
         '<td class="' + (r.pnl >= 0 ? "pnl-pos" : "pnl-neg") + '">' + fmtNum(r.pnl) + "</td>";
       tbody.appendChild(tr);
     });
