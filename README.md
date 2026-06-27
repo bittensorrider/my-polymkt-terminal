@@ -39,6 +39,22 @@ In `DRY_RUN`, there are no real orders to check on-chain, so fills are simulated
 
 Polymarket's `@polymarket/order-utils` defines `SignatureType { EOA = 0, POLY_PROXY = 1, POLY_GNOSIS_SAFE = 2 }` (confirmed by reading the package source directly). The reference repo's code comments mislabel value `2` as `POLY_PROXY` — it's actually `POLY_GNOSIS_SAFE`. Standard Polymarket email/Magic-link accounts are Gnosis Safe proxy wallets, so they need `2`. This bot uses the real enum constants (never magic numbers) and defaults `SIGNATURE_TYPE` to `2` with an explanation in `.env.example`. Use `1` only if your Polymarket account was created by connecting MetaMask directly.
 
+## Two-leg order placement is atomic-by-design, not just "fire and hope"
+
+Entering both legs with a plain `Promise.all` has a failure mode: if one `placeMakerBuy` resolves (a real resting order is now live on the CLOB) while the other rejects, `Promise.all` rejects immediately and the successful order's id is never captured — leaving a live, completely untracked order on the book that nothing will ever watch, cancel, or merge. This came up while cross-checking the bot against the "two-leg atomicity" / "exposure gate" guidance in the Medium post [Building a Profitable Polymarket Arbitrage System](https://medium.com/readers-club/building-a-profitable-polymarket-and-kalshi-arbitrage-system-32a224297488).
+
+`runCycle()` now places both legs through `placeBothLegs()` (`src/strategies/makerMergeMM.ts`), which uses `Promise.allSettled`:
+
+- both legs placed → proceed as before.
+- both legs fail → throw, nothing was ever live.
+- exactly one leg placed → immediately best-effort cancel it, then throw. A naked, unmonitored resting order is worse than abandoning the cycle outright.
+
+`runCycle()` also now wraps its post-entry body in try/catch so any error past this point clears the dashboard's position card for that asset instead of leaving a stale "waiting_entry"/"monitoring" entry behind.
+
+The same Medium post's other flagged concern — hardcoding `feeRateBps` instead of fetching the live per-market rate — turned out not to apply here: `@polymarket/clob-client`'s `createOrder()` always resolves the live fee rate via `getFeeRateBps()` and overwrites whatever (if anything) was passed in, so this bot was already safe on that front with no code change needed.
+
+Note this new failure path is unreachable in `DRY_RUN` — `placeMakerBuy()`'s dry-run branch always resolves, never rejects — so it only takes effect once `DRY_RUN=false` and you're placing real orders.
+
 ## Setup
 
 ```bash

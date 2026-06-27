@@ -17,6 +17,7 @@ import {
   marketSell,
   getOrderStatus,
   floorToTick,
+  type PlaceOrderResult,
 } from "../lib/polymarketClient.js";
 import { getConditionalTokenBalance, mergePositions } from "../lib/ctf.js";
 import { logCycle } from "../lib/kpiLogger.js";
@@ -94,75 +95,140 @@ export async function runCycle(
     `[${market.asset}] entering ${market.slug}: YES@${yesPrice} + NO@${noPrice} = ${combined.toFixed(4)}, ${targetShares} shares/side`,
   );
 
-  const [yesBaseline, noBaseline] = await Promise.all([
-    getConditionalTokenBalance(config.proxyWallet, market.yesTokenId),
-    getConditionalTokenBalance(config.proxyWallet, market.noTokenId),
-  ]);
+  try {
+    const [yesBaseline, noBaseline] = await Promise.all([
+      getConditionalTokenBalance(config.proxyWallet, market.yesTokenId),
+      getConditionalTokenBalance(config.proxyWallet, market.noTokenId),
+    ]);
 
-  const [yesOrder, noOrder] = await Promise.all([
+    const { yesOrder, noOrder } = await placeBothLegs(
+      market,
+      yesPrice,
+      noPrice,
+      targetShares,
+    );
+
+    fillWatcher.watch(market.yesTokenId);
+    fillWatcher.watch(market.noTokenId);
+
+    const position: Position = {
+      market,
+      startedAt,
+      status: "monitoring",
+      yes: makeSideState(
+        "yes",
+        market.yesTokenId,
+        yesPrice,
+        targetShares,
+        yesOrder.orderId,
+        yesBaseline,
+      ),
+      no: makeSideState(
+        "no",
+        market.noTokenId,
+        noPrice,
+        targetShares,
+        noOrder.orderId,
+        noBaseline,
+      ),
+      firstFillAt: null,
+      ghostFillSuspectedAt: null,
+      realizedPnl: 0,
+    };
+    pushPositionSnapshot(position, false);
+
+    const result = await monitorPosition(position);
+    fillWatcher.unwatch(market.yesTokenId);
+    fillWatcher.unwatch(market.noTokenId);
+
+    const record: CycleRecord = {
+      ts: new Date().toISOString(),
+      asset: market.asset,
+      duration: market.duration,
+      conditionId: market.conditionId,
+      slug: market.slug,
+      minuteBucket,
+      yesEntryPrice: yesPrice,
+      noEntryPrice: noPrice,
+      combined,
+      targetShares,
+      bothFilled: result.bothFilled,
+      oneSided: result.oneSided,
+      ghostFill: result.ghostFill,
+      cutLoss: result.cutLoss,
+      timeToFillMs: result.timeToFillMs,
+      pnl: position.realizedPnl,
+      dryRun: config.dryRun,
+    };
+    await logCycle(record);
+    botState.pushCycleRecord(record);
+    botState.clearPosition(market.asset);
+    logger.success(
+      `[${market.asset}] cycle complete: ${market.slug} bothFilled=${record.bothFilled} oneSided=${record.oneSided} pnl=${record.pnl.toFixed(4)}`,
+    );
+    return record;
+  } catch (err) {
+    // Whatever failed here — partial leg placement (already cleaned up inside
+    // placeBothLegs), a balance read, monitoring, anything — don't leave a stale
+    // "waiting_entry"/"monitoring" card stuck on the dashboard for this asset until the
+    // next detected slot happens to overwrite it.
+    botState.clearPosition(market.asset);
+    throw err;
+  }
+}
+
+/** Places both legs via Promise.allSettled rather than Promise.all so a single-leg failure
+ * never leaves the other leg orphaned. If exactly one leg made it onto the live book before
+ * the other failed, the placed leg is best-effort cancelled immediately — a naked,
+ * unmonitored resting maker order is worse than abandoning the cycle outright, since nothing
+ * else in this file would ever watch, cancel, or merge it. */
+async function placeBothLegs(
+  market: MarketInfo,
+  yesPrice: number,
+  noPrice: number,
+  targetShares: number,
+): Promise<{ yesOrder: PlaceOrderResult; noOrder: PlaceOrderResult }> {
+  const [yesResult, noResult] = await Promise.allSettled([
     placeMakerBuy(market.yesTokenId, yesPrice, targetShares, market.tickSize),
     placeMakerBuy(market.noTokenId, noPrice, targetShares, market.tickSize),
   ]);
 
-  fillWatcher.watch(market.yesTokenId);
-  fillWatcher.watch(market.noTokenId);
+  if (yesResult.status === "fulfilled" && noResult.status === "fulfilled") {
+    return { yesOrder: yesResult.value, noOrder: noResult.value };
+  }
 
-  const position: Position = {
-    market,
-    startedAt,
-    status: "monitoring",
-    yes: makeSideState(
-      "yes",
-      market.yesTokenId,
-      yesPrice,
-      targetShares,
-      yesOrder.orderId,
-      yesBaseline,
-    ),
-    no: makeSideState(
-      "no",
-      market.noTokenId,
-      noPrice,
-      targetShares,
-      noOrder.orderId,
-      noBaseline,
-    ),
-    firstFillAt: null,
-    ghostFillSuspectedAt: null,
-    realizedPnl: 0,
-  };
-  pushPositionSnapshot(position, false);
+  if (yesResult.status === "rejected" && noResult.status === "rejected") {
+    throw new Error(
+      `both leg placements failed — yes: ${errMsg(yesResult.reason)}; no: ${errMsg(noResult.reason)}`,
+    );
+  }
 
-  const result = await monitorPosition(position);
-  fillWatcher.unwatch(market.yesTokenId);
-  fillWatcher.unwatch(market.noTokenId);
+  // Exactly one leg succeeded — figure out which, and cancel it before this throws.
+  const placedSide = yesResult.status === "fulfilled" ? "YES" : "NO";
+  const placedOrder =
+    yesResult.status === "fulfilled"
+      ? yesResult.value
+      : (noResult as PromiseFulfilledResult<PlaceOrderResult>).value;
+  const failedSide = placedSide === "YES" ? "NO" : "YES";
+  const failedReason =
+    yesResult.status === "rejected"
+      ? yesResult.reason
+      : (noResult as PromiseRejectedResult).reason;
 
-  const record: CycleRecord = {
-    ts: new Date().toISOString(),
-    asset: market.asset,
-    duration: market.duration,
-    conditionId: market.conditionId,
-    slug: market.slug,
-    minuteBucket,
-    yesEntryPrice: yesPrice,
-    noEntryPrice: noPrice,
-    combined,
-    targetShares,
-    bothFilled: result.bothFilled,
-    oneSided: result.oneSided,
-    ghostFill: result.ghostFill,
-    cutLoss: result.cutLoss,
-    timeToFillMs: result.timeToFillMs,
-    pnl: position.realizedPnl,
-    dryRun: config.dryRun,
-  };
-  await logCycle(record);
-  botState.pushCycleRecord(record);
-  botState.clearPosition(market.asset);
-  logger.success(
-    `[${market.asset}] cycle complete: ${market.slug} bothFilled=${record.bothFilled} oneSided=${record.oneSided} pnl=${record.pnl.toFixed(4)}`,
+  logger.error(
+    `[${market.asset}] ${market.slug}: ${failedSide} leg placement failed (${errMsg(failedReason)}) after ` +
+      `${placedSide} was already placed (order ${placedOrder.orderId}) — cancelling ${placedSide} now ` +
+      `to avoid a naked, unmonitored position.`,
   );
-  return record;
+  await cancelOrder(placedOrder.orderId).catch((err) =>
+    logger.error(
+      `[${market.asset}] ${market.slug}: cancel of orphaned ${placedSide} order ${placedOrder.orderId} ` +
+        `FAILED (${errMsg(err)}) — check this order manually on Polymarket, it may still be live.`,
+    ),
+  );
+  throw new Error(
+    `${failedSide} leg placement failed after ${placedSide} was placed — cancelled ${placedSide}, aborting cycle.`,
+  );
 }
 
 function makeSideState(
