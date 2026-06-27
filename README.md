@@ -76,6 +76,8 @@ Controls are deliberately limited to **pause / resume / stop** — there's no li
 - **Resume** clears the pause.
 - **Stop** exits the process immediately — the same as `Ctrl+C`. It does not wait for an in-flight cycle to finish or attempt to flatten exposure first; if a cycle is open when you click it, it's abandoned mid-monitoring, identical to killing the process from the terminal today. The dashboard's confirmation dialog spells this out.
 
+  **If you launched with `npm run dev` / `dev:sim` / `dev:sim:5m`:** those run the bot under `tsx watch`, a file-watcher wrapper. Stop still fully kills the bot itself — dashboard, detector, strategy loop all exit, the port is released — but `tsx watch`'s own wrapper process stays alive afterward (it's a watcher; its only job is waiting for file changes, and it has no flag to exit when its child exits cleanly). That's the process you still see sitting in your terminal — one `Ctrl+C` there closes it. Run with `npm run build && npm run start:sim` (or `npm start`) instead if you want Stop alone to fully return your terminal prompt.
+
 **Security note:** the pause/resume/stop endpoints have no authentication. The dashboard binds to `127.0.0.1` only by default specifically because of that — do not set `DASHBOARD_HOST` to `0.0.0.0` or any public interface unless you put your own auth/proxy in front of it, since anyone who can reach the port can stop the bot. Set `DASHBOARD_ENABLED=false` to turn it off entirely. `DASHBOARD_PORT` defaults to `3000` (the `.env.5m` profile uses `3001` so both can run side by side).
 
 ## Asset selection
