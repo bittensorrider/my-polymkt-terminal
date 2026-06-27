@@ -60,9 +60,16 @@ A local web dashboard starts automatically alongside the bot (`DASHBOARD_ENABLED
 
 - per-asset cycle status (waiting for entry / monitoring / done / cut-loss), YES/NO entry prices and fill state, time remaining before cut-loss
 - a queued-next badge if a market is waiting because a cycle is already running for that asset
-- a **Balance** panel: your running cumulative P&L across all logged cycles, both as a number and as an inline trend chart (hand-drawn SVG — no charting library, consistent with the rest of the dashboard), plus your live on-chain USDC wallet balance and its change since the dashboard started
+- live **BTC/ETH price charts** (candlestick or line, with a 1m/5m/15m/1h timeframe picker) for visual context next to the up/down markets
+- a **Balance** panel: your running cumulative P&L across all logged cycles, both as a number and as an inline trend chart (hand-drawn SVG — no charting library), plus your live on-chain USDC wallet balance and its change since the dashboard started
 - the same both-fill-rate / breakeven KPI numbers as `npm run kpi-report`, computed by the same shared code so they always agree
 - the last 50 completed cycles
+
+### Price charts
+
+The BTC/ETH chart panel is the one part of the dashboard that needs internet access — it loads [TradingView's lightweight-charts](https://github.com/tradingview/lightweight-charts) from a CDN (`unpkg.com`) in the browser, and the dashboard server's `GET /api/prices?asset=&interval=&limit=` route proxies candle data from Binance's public REST API (no key needed, briefly cached server-side so switching timeframes or having multiple tabs open doesn't multiply requests). Everything else on the page — controls, balance, KPI summary, recent cycles — still works with zero internet access; only this panel shows an error if the CDN script or Binance is unreachable.
+
+This is display-only context for whichever crypto markets you're watching — the strategy itself never reads this feed, it only ever looks at Polymarket's own CLOB bid/ask. Switching chart type or timeframe re-renders from already-fetched candles instantly except when changing timeframe (which re-fetches); the panel otherwise auto-refreshes every 10 seconds.
 
 ### Balance panel
 

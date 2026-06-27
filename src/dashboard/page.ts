@@ -1,6 +1,13 @@
 // Single-file vanilla HTML/CSS/JS dashboard page, served as a plain string by
-// dashboardServer.ts. Deliberately dependency-free (no CDN fetch, no build step) so it
-// works fully offline and ships as part of the normal tsc build with zero extra steps.
+// dashboardServer.ts. No build step — ships as part of the normal tsc build with zero extra
+// steps (see NOTE below for why this lives in a .ts file instead of a .html one).
+//
+// DEPENDENCIES: the price-chart panel loads TradingView's lightweight-charts from a CDN
+// (unpkg), and the server-side /api/prices route it talks to calls Binance's public REST
+// API. Both need outbound internet access from the machine running the dashboard. Nothing
+// else on this page does — control buttons, balance, KPI summary, and recent cycles all keep
+// working with no internet at all; only the chart panel degrades (shows an error) if either
+// is unreachable. Price data is for visual context only — the strategy never reads it.
 //
 // NOTE: this file is a .ts module (not raw .html) specifically so it gets compiled into
 // dist/ automatically alongside everything else — `tsc` only emits .ts -> .js, it does not
@@ -13,78 +20,112 @@ export const DASHBOARD_HTML = `<!doctype html>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>my-polymkt-terminal</title>
+<script src="https://unpkg.com/lightweight-charts@4/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   :root {
-    --bg: #0d1117;
-    --panel: #161b22;
-    --border: #30363d;
-    --text: #e6edf3;
-    --dim: #8b949e;
-    --blue: #58a6ff;
-    --green: #3fb950;
-    --amber: #d29922;
-    --red: #f85149;
+    --bg: #0b0e14;
+    --panel: #141821;
+    --panel-2: #1a1f29;
+    --border: #2a3140;
+    --border-soft: rgba(255, 255, 255, 0.06);
+    --text: #e8edf4;
+    --dim: #8b96a5;
+    --dim-2: #5d6776;
+    --blue: #5b9dff;
+    --green: #2ecf75;
+    --amber: #f0a93c;
+    --red: #ff5d5d;
+    --btc: #f7931a;
+    --eth: #8c9eff;
+    --radius: 14px;
+    --radius-sm: 9px;
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    background: var(--bg);
+    background:
+      radial-gradient(1100px 500px at 50% -10%, rgba(91, 157, 255, 0.07), transparent),
+      var(--bg);
     color: var(--text);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-family: var(--font-ui);
     font-size: 14px;
+    -webkit-font-smoothing: antialiased;
   }
   header {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 14px 20px;
-    border-bottom: 1px solid var(--border);
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--border-soft);
     flex-wrap: wrap;
     position: sticky;
     top: 0;
     z-index: 50;
-    background: var(--bg);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    background: rgba(11, 14, 20, 0.72);
+    backdrop-filter: saturate(180%) blur(14px);
+    -webkit-backdrop-filter: saturate(180%) blur(14px);
+    box-shadow: 0 1px 0 var(--border-soft), 0 12px 28px -16px rgba(0, 0, 0, 0.6);
   }
   header h1 {
-    font-size: 16px;
+    font-size: 15px;
     margin: 0;
-    margin-right: 8px;
-    font-weight: 600;
+    margin-right: 6px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  header h1::before {
+    content: "";
+    width: 9px;
+    height: 9px;
+    border-radius: 3px;
+    background: linear-gradient(135deg, var(--blue), var(--green));
+    display: inline-block;
+    flex-shrink: 0;
   }
   .pill {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 3px 9px;
+    padding: 4px 10px;
     border-radius: 999px;
-    border: 1px solid var(--border);
-    font-size: 12px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 600;
     color: var(--dim);
+    background: rgba(255, 255, 255, 0.04);
   }
-  .pill.dryrun { color: var(--amber); border-color: var(--amber); }
-  .pill.live { color: var(--red); border-color: var(--red); }
-  .pill.running { color: var(--green); border-color: var(--green); }
-  .pill.paused { color: var(--amber); border-color: var(--amber); }
-  .pill.conn-ok { color: var(--green); border-color: var(--green); }
-  .pill.conn-bad { color: var(--red); border-color: var(--red); }
+  .pill.dryrun { color: var(--amber); background: rgba(240, 169, 60, 0.14); }
+  .pill.live { color: var(--red); background: rgba(255, 93, 93, 0.14); }
+  .pill.running { color: var(--green); background: rgba(46, 207, 117, 0.14); }
+  .pill.paused { color: var(--amber); background: rgba(240, 169, 60, 0.14); }
+  .pill.conn-ok { color: var(--green); background: rgba(46, 207, 117, 0.14); }
+  .pill.conn-bad { color: var(--red); background: rgba(255, 93, 93, 0.14); }
   .spacer { flex: 1; }
   button {
-    font-family: inherit;
-    font-size: 12px;
-    padding: 6px 14px;
-    border-radius: 6px;
+    font-family: var(--font-ui);
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 7px 16px;
+    border-radius: 999px;
     border: 1px solid var(--border);
-    background: var(--panel);
+    background: var(--panel-2);
     color: var(--text);
     cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background-color 0.15s, transform 0.1s;
   }
-  button:hover { border-color: var(--blue); }
-  button.danger:hover { border-color: var(--red); color: var(--red); }
-  button:disabled { opacity: 0.4; cursor: default; }
+  button:hover { border-color: var(--blue); color: var(--blue); }
+  button:active { transform: scale(0.96); }
+  button.danger { color: var(--red); border-color: rgba(255, 93, 93, 0.35); background: rgba(255, 93, 93, 0.07); }
+  button.danger:hover { border-color: var(--red); background: rgba(255, 93, 93, 0.16); }
+  button:disabled { opacity: 0.35; cursor: default; transform: none; }
   main {
-    padding: 20px;
-    max-width: 1200px;
+    padding: 22px 20px 30px;
+    max-width: 1240px;
     margin: 0 auto;
     display: flex;
     flex-direction: column;
@@ -96,54 +137,73 @@ export const DASHBOARD_HTML = `<!doctype html>
     gap: 14px;
   }
   .card {
-    background: var(--panel);
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 16px;
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 10px 24px -14px rgba(0, 0, 0, 0.6);
+    position: relative;
+    overflow: hidden;
   }
+  .card.accent-btc, .card.accent-eth { padding-left: 21px; }
+  .card.accent-btc::before, .card.accent-eth::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 14px; bottom: 14px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+  }
+  .card.accent-btc::before { background: var(--btc); }
+  .card.accent-eth::before { background: var(--eth); }
   .card h2 {
-    margin: 0 0 10px;
-    font-size: 13px;
+    margin: 0 0 12px;
+    font-size: 12px;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     color: var(--dim);
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 8px;
   }
   .row {
     display: flex;
     justify-content: space-between;
-    padding: 3px 0;
+    padding: 4px 0;
     color: var(--dim);
+    font-size: 13px;
   }
-  .row b { color: var(--text); font-weight: 500; }
+  .row b { color: var(--text); font-weight: 600; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .badge {
     display: inline-block;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 11px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 600;
     text-transform: uppercase;
+    letter-spacing: 0.02em;
   }
-  .badge.waiting_entry { background: #3d2f00; color: var(--amber); }
-  .badge.entering { background: #3d2f00; color: var(--amber); }
-  .badge.monitoring { background: #0d2a4d; color: var(--blue); }
-  .badge.merging { background: #0d2a4d; color: var(--blue); }
-  .badge.recovering { background: #3d2f00; color: var(--amber); }
-  .badge.done { background: #0d3321; color: var(--green); }
-  .badge.cut_loss { background: #3d0d0d; color: var(--red); }
-  .badge.idle { background: #21262d; color: var(--dim); }
+  .badge.waiting_entry { background: rgba(240, 169, 60, 0.14); color: var(--amber); }
+  .badge.entering { background: rgba(240, 169, 60, 0.14); color: var(--amber); }
+  .badge.monitoring { background: rgba(91, 157, 255, 0.14); color: var(--blue); }
+  .badge.merging { background: rgba(91, 157, 255, 0.14); color: var(--blue); }
+  .badge.recovering { background: rgba(240, 169, 60, 0.14); color: var(--amber); }
+  .badge.done { background: rgba(46, 207, 117, 0.14); color: var(--green); }
+  .badge.cut_loss { background: rgba(255, 93, 93, 0.14); color: var(--red); }
+  .badge.idle { background: rgba(255, 255, 255, 0.06); color: var(--dim); }
   .fill-yes, .fill-no {
     display: inline-block;
-    width: 10px; height: 10px;
+    width: 9px; height: 9px;
     border-radius: 50%;
     margin-right: 5px;
-    background: var(--border);
+    background: rgba(255, 255, 255, 0.12);
   }
   .fill-yes.on, .fill-no.on { background: var(--green); }
   table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); }
-  th { color: var(--dim); font-weight: 500; text-transform: uppercase; font-size: 11px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border-soft); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  th { color: var(--dim-2); font-weight: 600; text-transform: uppercase; font-size: 10.5px; font-family: var(--font-ui); letter-spacing: 0.05em; }
+  tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
   td.pnl-pos { color: var(--green); }
   td.pnl-neg { color: var(--red); }
   .kpi-grid {
@@ -151,12 +211,47 @@ export const DASHBOARD_HTML = `<!doctype html>
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 14px;
   }
-  .kpi-stat .num { font-size: 22px; font-weight: 600; }
-  .kpi-stat .label { color: var(--dim); font-size: 11px; text-transform: uppercase; margin-top: 2px; }
+  .kpi-stat .num { font-size: 23px; font-weight: 700; font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  .kpi-stat .label { color: var(--dim-2); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 3px; }
   .edge-pos { color: var(--green); }
   .edge-neg { color: var(--red); }
-  .empty { color: var(--dim); padding: 10px 0; }
-  footer { text-align: center; color: var(--dim); font-size: 11px; padding: 20px; }
+  .empty { color: var(--dim-2); padding: 10px 0; font-size: 13px; }
+  footer { text-align: center; color: var(--dim-2); font-size: 11px; padding: 24px 20px; }
+
+  .charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+    gap: 14px;
+  }
+  .chart-card .chart-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .chart-card h2 { margin-bottom: 4px; }
+  .chart-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .chart-symbol { color: var(--dim-2); font-weight: 500; text-transform: none; letter-spacing: 0; }
+  .chart-price { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 21px; font-weight: 700; color: var(--text); }
+  .chart-change { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12.5px; font-weight: 600; }
+  .chart-controls { display: flex; gap: 8px; align-items: center; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+  .seg button {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    color: var(--dim);
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .seg button:hover { color: var(--blue); border-color: transparent; }
+  .seg button + button { border-left: 1px solid var(--border); }
+  .seg button.active { background: rgba(91, 157, 255, 0.14); color: var(--blue); }
+  .chart-box { width: 100%; height: 260px; }
+  .chart-foot { display: flex; justify-content: space-between; color: var(--dim-2); font-size: 11px; margin-top: 8px; font-family: var(--font-mono); }
 </style>
 </head>
 <body>
@@ -174,6 +269,68 @@ export const DASHBOARD_HTML = `<!doctype html>
 <main>
   <section>
     <div class="cards" id="asset-cards"><div class="empty">Waiting for first update…</div></div>
+  </section>
+
+  <section>
+    <div class="charts-grid">
+      <div class="card chart-card accent-btc" data-asset="btc">
+        <div class="chart-head">
+          <div class="chart-title">
+            <h2 style="margin:0;">BTC <span class="chart-symbol">BTC/USDT</span></h2>
+          </div>
+        </div>
+        <div class="chart-title" style="margin-bottom:10px;">
+          <span class="chart-price" id="price-btc-last">--</span>
+          <span class="chart-change" id="price-btc-change"></span>
+        </div>
+        <div class="chart-controls" style="margin-bottom:10px;">
+          <div class="seg" data-kind="type" data-asset="btc">
+            <button data-value="candle" class="active">Candles</button>
+            <button data-value="line">Line</button>
+          </div>
+          <div class="seg" data-kind="interval" data-asset="btc">
+            <button data-value="1m" class="active">1m</button>
+            <button data-value="5m">5m</button>
+            <button data-value="15m">15m</button>
+            <button data-value="1h">1h</button>
+          </div>
+        </div>
+        <div class="chart-box" id="chart-btc"></div>
+        <div class="chart-foot">
+          <span id="price-btc-status">Loading…</span>
+          <span>via Binance</span>
+        </div>
+      </div>
+
+      <div class="card chart-card accent-eth" data-asset="eth">
+        <div class="chart-head">
+          <div class="chart-title">
+            <h2 style="margin:0;">ETH <span class="chart-symbol">ETH/USDT</span></h2>
+          </div>
+        </div>
+        <div class="chart-title" style="margin-bottom:10px;">
+          <span class="chart-price" id="price-eth-last">--</span>
+          <span class="chart-change" id="price-eth-change"></span>
+        </div>
+        <div class="chart-controls" style="margin-bottom:10px;">
+          <div class="seg" data-kind="type" data-asset="eth">
+            <button data-value="candle" class="active">Candles</button>
+            <button data-value="line">Line</button>
+          </div>
+          <div class="seg" data-kind="interval" data-asset="eth">
+            <button data-value="1m" class="active">1m</button>
+            <button data-value="5m">5m</button>
+            <button data-value="15m">15m</button>
+            <button data-value="1h">1h</button>
+          </div>
+        </div>
+        <div class="chart-box" id="chart-eth"></div>
+        <div class="chart-foot">
+          <span id="price-eth-status">Loading…</span>
+          <span>via Binance</span>
+        </div>
+      </div>
+    </div>
   </section>
 
   <section class="card" id="balance-card">
@@ -296,7 +453,8 @@ export const DASHBOARD_HTML = `<!doctype html>
 
     assets.forEach(function (asset) {
       var pos = positionsByAsset[asset];
-      var card = el("div", { cls: "card" });
+      var accent = (asset === "btc" || asset === "eth") ? " accent-" + asset : "";
+      var card = el("div", { cls: "card" + accent });
       var title = el("h2");
       title.appendChild(document.createTextNode(asset.toUpperCase()));
       var status = pos ? pos.status : "idle";
@@ -528,10 +686,163 @@ export const DASHBOARD_HTML = `<!doctype html>
     post("/api/stop");
   });
 
+  // ── BTC/ETH price charts (lightweight-charts, fed by /api/prices). Fully independent of
+  // the WS snapshot loop above — these run their own fetch/refresh cycle since chart data
+  // isn't part of bot state.
+  var CHART_ASSETS = ["btc", "eth"];
+  var chartState = {};
+
+  function setActiveSegButton(btn) {
+    var siblings = btn.parentElement.children;
+    for (var i = 0; i < siblings.length; i++) siblings[i].classList.remove("active");
+    btn.classList.add("active");
+  }
+
+  function setSeriesType(asset, type) {
+    var st = chartState[asset];
+    if (!st) return;
+    if (st.series) {
+      st.chart.removeSeries(st.series);
+      st.series = null;
+    }
+    if (type === "candle") {
+      st.series = st.chart.addCandlestickSeries({
+        upColor: "#2ecf75",
+        downColor: "#ff5d5d",
+        borderVisible: false,
+        wickUpColor: "#2ecf75",
+        wickDownColor: "#ff5d5d",
+      });
+    } else {
+      st.series = st.chart.addLineSeries({ color: "#5b9dff", lineWidth: 2 });
+    }
+    st.type = type;
+  }
+
+  function renderChartSeries(asset) {
+    var st = chartState[asset];
+    if (!st || !st.series || st.candles.length === 0) return;
+    if (st.type === "candle") {
+      st.series.setData(st.candles.map(function (c) {
+        return { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close };
+      }));
+    } else {
+      st.series.setData(st.candles.map(function (c) {
+        return { time: c.time, value: c.close };
+      }));
+    }
+  }
+
+  function updatePriceHeader(asset) {
+    var st = chartState[asset];
+    var candles = st.candles;
+    if (!candles || candles.length === 0) return;
+    var last = candles[candles.length - 1];
+    var first = candles[0];
+    var change = last.close - first.open;
+    var pct = first.open !== 0 ? (change / first.open) * 100 : 0;
+    var priceEl = document.getElementById("price-" + asset + "-last");
+    if (priceEl) priceEl.textContent = "$" + last.close.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+    var changeEl = document.getElementById("price-" + asset + "-change");
+    if (changeEl) {
+      changeEl.textContent = (change >= 0 ? "+" : "") + change.toFixed(2) + " (" + (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%)";
+      changeEl.style.color = change >= 0 ? "var(--green)" : "var(--red)";
+    }
+  }
+
+  function loadPrices(asset) {
+    var st = chartState[asset];
+    if (!st) return;
+    fetch("/api/prices?asset=" + asset + "&interval=" + st.interval + "&limit=200")
+      .then(function (r) {
+        return r.json().then(function (body) { return { ok: r.ok, body: body }; });
+      })
+      .then(function (res) {
+        var statusEl = document.getElementById("price-" + asset + "-status");
+        if (!res.ok) {
+          if (statusEl) { statusEl.textContent = (res.body && res.body.error) || "Price feed error"; statusEl.style.color = "var(--red)"; }
+          return;
+        }
+        st.candles = res.body.candles || [];
+        renderChartSeries(asset);
+        updatePriceHeader(asset);
+        if (statusEl) { statusEl.textContent = "updated " + new Date().toLocaleTimeString(); statusEl.style.color = ""; }
+      })
+      .catch(function () {
+        var statusEl = document.getElementById("price-" + asset + "-status");
+        if (statusEl) { statusEl.textContent = "price feed unreachable"; statusEl.style.color = "var(--red)"; }
+      });
+  }
+
+  function initCharts() {
+    if (typeof LightweightCharts === "undefined") {
+      CHART_ASSETS.forEach(function (asset) {
+        var box = document.getElementById("chart-" + asset);
+        if (box) box.innerHTML = '<div class="empty">Chart library failed to load from the CDN — check your internet connection and reload.</div>';
+        var statusEl = document.getElementById("price-" + asset + "-status");
+        if (statusEl) statusEl.textContent = "chart library unavailable";
+      });
+      return;
+    }
+
+    CHART_ASSETS.forEach(function (asset) {
+      var container = document.getElementById("chart-" + asset);
+      if (!container) return;
+      var chart = LightweightCharts.createChart(container, {
+        autoSize: true,
+        layout: {
+          background: { color: "transparent" },
+          textColor: "#8b96a5",
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+          fontSize: 11,
+        },
+        grid: {
+          vertLines: { color: "rgba(255,255,255,0.04)" },
+          horzLines: { color: "rgba(255,255,255,0.04)" },
+        },
+        rightPriceScale: { borderColor: "rgba(255,255,255,0.08)" },
+        timeScale: { borderColor: "rgba(255,255,255,0.08)", timeVisible: true, secondsVisible: false },
+        crosshair: { mode: 1 },
+      });
+
+      chartState[asset] = { chart: chart, series: null, type: "candle", interval: "1m", candles: [] };
+      setSeriesType(asset, "candle");
+
+      var typeBtns = document.querySelectorAll('.seg[data-kind="type"][data-asset="' + asset + '"] button');
+      for (var i = 0; i < typeBtns.length; i++) {
+        typeBtns[i].addEventListener("click", function (ev) {
+          var btn = ev.currentTarget;
+          var a = btn.parentElement.getAttribute("data-asset");
+          setActiveSegButton(btn);
+          setSeriesType(a, btn.getAttribute("data-value"));
+          renderChartSeries(a);
+        });
+      }
+
+      var intervalBtns = document.querySelectorAll('.seg[data-kind="interval"][data-asset="' + asset + '"] button');
+      for (var j = 0; j < intervalBtns.length; j++) {
+        intervalBtns[j].addEventListener("click", function (ev) {
+          var btn = ev.currentTarget;
+          var a = btn.parentElement.getAttribute("data-asset");
+          setActiveSegButton(btn);
+          chartState[a].interval = btn.getAttribute("data-value");
+          loadPrices(a);
+        });
+      }
+
+      loadPrices(asset);
+    });
+
+    setInterval(function () {
+      CHART_ASSETS.forEach(function (asset) { loadPrices(asset); });
+    }, 10000);
+  }
+
   connect();
   fetch("/api/state").then(function (r) { return r.json(); }).then(function (data) {
     render(data.state, data.kpi);
   }).catch(function () {});
+  initCharts();
 })();
 </script>
 </body>
