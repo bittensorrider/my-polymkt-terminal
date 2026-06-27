@@ -40,6 +40,11 @@ export const DASHBOARD_HTML = `<!doctype html>
     padding: 14px 20px;
     border-bottom: 1px solid var(--border);
     flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: var(--bg);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   }
   header h1 {
     font-size: 16px;
